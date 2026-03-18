@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "name": "bert-base-uncased",
+  "display_name": "BERT Base Uncased",
+  "family": "bert",
+  "task": "fill-mask",
+  "source": "prebaked",
+  "source_confidence": "exact",
+  "source_refs": [],
+  "blocks": [
+    {
+      "id": "embeddings",
+      "label": "Embeddings",
+      "type": "embedding",
+      "params": {
+        "vocab_size": 30522,
+        "hidden_size": 768,
+        "max_position_embeddings": 512,
+        "type_vocab_size": 2,
+        "position_embedding_type": "absolute"
+      },
+      "repeat": 1,
+      "children": [],
+      "param_count": 23837184
+    },
+    {
+      "id": "encoder",
+      "label": "Transformer Encoder",
+      "type": "transformer_stack",
+      "params": {
+        "hidden_size": 768,
+        "num_hidden_layers": 12,
+        "num_attention_heads": 12,
+        "intermediate_size": 3072,
+        "hidden_act": "gelu",
+        "attention_type": "multi_head",
+        "is_causal": false
+      },
+      "repeat": 12,
+      "children": [
+        {
+          "id": "self_attn",
+          "label": "Self-Attention",
+          "type": "multi_head_attention",
+          "params": {
+            "hidden_size": 768,
+            "num_heads": 12,
+            "head_dim": 64,
+            "attention_type": "multi_head",
+            "is_causal": false
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 2362368
+        },
+        {
+          "id": "attn_layernorm",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 1536
+        },
+        {
+          "id": "ffn",
+          "label": "Feed-Forward",
+          "type": "feed_forward",
+          "params": {
+            "hidden_size": 768,
+            "intermediate_size": 3072,
+            "activation": "gelu"
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 4722688
+        },
+        {
+          "id": "ffn_layernorm",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 1536
+        }
+      ],
+      "param_count": 85054464
+    },
+    {
+      "id": "pooler",
+      "label": "Pooler",
+      "type": "linear",
+      "params": { "in_features": 768, "out_features": 768, "bias": true },
+      "repeat": 1,
+      "children": [],
+      "param_count": 590592
+    }
+  ],
+  "compute": {
+    "params_total": 109482240,
+    "params_embedding": 23837184,
+    "params_encoder": 85054464,
+    "params_head": 590592,
+    "flops_per_token": 22400000000,
+    "memory_fp32_gb": 0.418,
+    "memory_fp16_gb": 0.209,
+    "memory_bf16_gb": 0.209,
+    "memory_int8_gb": 0.105,
+    "memory_int4_gb": 0.052
+  }
+}

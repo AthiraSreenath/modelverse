@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0",
+  "name": "gpt2",
+  "display_name": "GPT-2",
+  "family": "gpt2",
+  "task": "text-generation",
+  "source": "prebaked",
+  "source_confidence": "exact",
+  "source_refs": [],
+  "blocks": [
+    {
+      "id": "wte",
+      "label": "Token Embeddings",
+      "type": "embedding",
+      "params": {
+        "vocab_size": 50257,
+        "hidden_size": 768,
+        "max_position_embeddings": 1024,
+        "position_embedding_type": "absolute"
+      },
+      "repeat": 1,
+      "children": [],
+      "param_count": 38597376
+    },
+    {
+      "id": "transformer",
+      "label": "Transformer Decoder",
+      "type": "transformer_stack",
+      "params": {
+        "hidden_size": 768,
+        "num_hidden_layers": 12,
+        "num_attention_heads": 12,
+        "intermediate_size": 3072,
+        "hidden_act": "gelu_new",
+        "attention_type": "multi_head",
+        "is_causal": true
+      },
+      "repeat": 12,
+      "children": [
+        {
+          "id": "ln_1",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 1536
+        },
+        {
+          "id": "attn",
+          "label": "Causal Self-Attention",
+          "type": "multi_head_attention",
+          "params": {
+            "hidden_size": 768,
+            "num_heads": 12,
+            "head_dim": 64,
+            "attention_type": "multi_head",
+            "is_causal": true
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 2362368
+        },
+        {
+          "id": "ln_2",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 1536
+        },
+        {
+          "id": "mlp",
+          "label": "MLP",
+          "type": "feed_forward",
+          "params": {
+            "hidden_size": 768,
+            "intermediate_size": 3072,
+            "activation": "gelu"
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 4722688
+        }
+      ],
+      "param_count": 85054464
+    },
+    {
+      "id": "ln_f",
+      "label": "Final LayerNorm",
+      "type": "layer_norm",
+      "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+      "repeat": 1,
+      "children": [],
+      "param_count": 1536
+    }
+  ],
+  "compute": {
+    "params_total": 124439808,
+    "params_embedding": 38597376,
+    "params_encoder": 85054464,
+    "params_head": 1536,
+    "flops_per_token": 21400000000,
+    "memory_fp32_gb": 0.475,
+    "memory_fp16_gb": 0.238,
+    "memory_bf16_gb": 0.238,
+    "memory_int8_gb": 0.119,
+    "memory_int4_gb": 0.059
+  }
+}

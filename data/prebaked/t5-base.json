@@ -1,0 +1,177 @@
+{
+  "schema_version": "1.0",
+  "name": "t5-base",
+  "display_name": "T5 Base",
+  "family": "t5",
+  "task": "text2text-generation",
+  "source": "prebaked",
+  "source_confidence": "exact",
+  "source_refs": [],
+  "blocks": [
+    {
+      "id": "shared",
+      "label": "Shared Embeddings",
+      "type": "embedding",
+      "params": {
+        "vocab_size": 32128,
+        "hidden_size": 768,
+        "position_embedding_type": "relative"
+      },
+      "repeat": 1,
+      "children": [],
+      "param_count": 24674304
+    },
+    {
+      "id": "encoder",
+      "label": "T5 Encoder",
+      "type": "transformer_stack",
+      "params": {
+        "hidden_size": 768,
+        "num_hidden_layers": 12,
+        "num_attention_heads": 12,
+        "intermediate_size": 3072,
+        "is_causal": false
+      },
+      "repeat": 12,
+      "children": [
+        {
+          "id": "self_attn",
+          "label": "Self-Attention (relative pos)",
+          "type": "multi_head_attention",
+          "params": {
+            "hidden_size": 768,
+            "num_heads": 12,
+            "head_dim": 64,
+            "attention_type": "multi_head",
+            "is_causal": false
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 2359296
+        },
+        {
+          "id": "layer_norm",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 768
+        },
+        {
+          "id": "ffn",
+          "label": "FFN",
+          "type": "feed_forward",
+          "params": { "hidden_size": 768, "intermediate_size": 3072, "activation": "relu" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 4718592
+        },
+        {
+          "id": "ffn_norm",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 768
+        }
+      ],
+      "param_count": 85641216
+    },
+    {
+      "id": "decoder",
+      "label": "T5 Decoder",
+      "type": "transformer_stack",
+      "params": {
+        "hidden_size": 768,
+        "num_hidden_layers": 12,
+        "num_attention_heads": 12,
+        "intermediate_size": 3072,
+        "is_causal": true
+      },
+      "repeat": 12,
+      "children": [
+        {
+          "id": "self_attn",
+          "label": "Causal Self-Attention",
+          "type": "multi_head_attention",
+          "params": {
+            "hidden_size": 768,
+            "num_heads": 12,
+            "head_dim": 64,
+            "attention_type": "multi_head",
+            "is_causal": true
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 2359296
+        },
+        {
+          "id": "cross_attn",
+          "label": "Cross-Attention",
+          "type": "multi_head_attention",
+          "params": {
+            "hidden_size": 768,
+            "num_heads": 12,
+            "head_dim": 64,
+            "attention_type": "multi_head",
+            "is_causal": false
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 2359296
+        },
+        {
+          "id": "layer_norm",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 768
+        },
+        {
+          "id": "ffn",
+          "label": "FFN",
+          "type": "feed_forward",
+          "params": { "hidden_size": 768, "intermediate_size": 3072, "activation": "relu" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 4718592
+        },
+        {
+          "id": "ffn_norm",
+          "label": "LayerNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 768
+        }
+      ],
+      "param_count": 113381376
+    },
+    {
+      "id": "lm_head",
+      "label": "LM Head",
+      "type": "linear",
+      "params": { "in_features": 768, "out_features": 32128, "bias": false },
+      "repeat": 1,
+      "children": [],
+      "param_count": 24674304
+    }
+  ],
+  "compute": {
+    "params_total": 248369664,
+    "params_embedding": 24674304,
+    "params_encoder": 85641216,
+    "params_head": 113381376,
+    "flops_per_token": null,
+    "memory_fp32_gb": 0.948,
+    "memory_fp16_gb": 0.474,
+    "memory_bf16_gb": 0.474,
+    "memory_int8_gb": 0.237,
+    "memory_int4_gb": 0.119
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "schema_version": "1.0",
+  "name": "meta-llama/Llama-3.1-8B",
+  "display_name": "LLaMA 3.1 8B",
+  "family": "llama",
+  "task": "text-generation",
+  "source": "prebaked",
+  "source_confidence": "exact",
+  "source_refs": [],
+  "blocks": [
+    {
+      "id": "embed_tokens",
+      "label": "Token Embeddings",
+      "type": "embedding",
+      "params": {
+        "vocab_size": 128256,
+        "hidden_size": 4096,
+        "max_position_embeddings": 131072,
+        "position_embedding_type": "rope"
+      },
+      "repeat": 1,
+      "children": [],
+      "param_count": 524902400
+    },
+    {
+      "id": "layers",
+      "label": "Transformer Decoder",
+      "type": "transformer_stack",
+      "params": {
+        "hidden_size": 4096,
+        "num_hidden_layers": 32,
+        "num_attention_heads": 32,
+        "num_key_value_heads": 8,
+        "intermediate_size": 14336,
+        "hidden_act": "silu",
+        "attention_type": "grouped_query",
+        "is_causal": true,
+        "rope_theta": 500000.0
+      },
+      "repeat": 32,
+      "children": [
+        {
+          "id": "input_layernorm",
+          "label": "RMSNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 4096, "norm_type": "rms_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 4096
+        },
+        {
+          "id": "self_attn",
+          "label": "Grouped-Query Attention",
+          "type": "multi_head_attention",
+          "params": {
+            "hidden_size": 4096,
+            "num_heads": 32,
+            "head_dim": 128,
+            "num_kv_heads": 8,
+            "attention_type": "grouped_query",
+            "is_causal": true
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 33554432
+        },
+        {
+          "id": "post_attention_layernorm",
+          "label": "RMSNorm",
+          "type": "layer_norm",
+          "params": { "normalized_shape": 4096, "norm_type": "rms_norm" },
+          "repeat": 1,
+          "children": [],
+          "param_count": 4096
+        },
+        {
+          "id": "mlp",
+          "label": "SwiGLU FFN",
+          "type": "feed_forward",
+          "params": {
+            "hidden_size": 4096,
+            "intermediate_size": 14336,
+            "activation": "swiglu"
+          },
+          "repeat": 1,
+          "children": [],
+          "param_count": 176160768
+        }
+      ],
+      "param_count": 6710886400
+    },
+    {
+      "id": "norm",
+      "label": "Final RMSNorm",
+      "type": "layer_norm",
+      "params": { "normalized_shape": 4096, "norm_type": "rms_norm" },
+      "repeat": 1,
+      "children": [],
+      "param_count": 4096
+    },
+    {
+      "id": "lm_head",
+      "label": "LM Head",
+      "type": "linear",
+      "params": { "in_features": 4096, "out_features": 128256, "bias": false },
+      "repeat": 1,
+      "children": [],
+      "param_count": 524902400
+    }
+  ],
+  "compute": {
+    "params_total": 8030261248,
+    "params_embedding": 524902400,
+    "params_encoder": 6710886400,
+    "params_head": 524902400,
+    "flops_per_token": 16000000000000,
+    "memory_fp32_gb": 30.66,
+    "memory_fp16_gb": 15.33,
+    "memory_bf16_gb": 15.33,
+    "memory_int8_gb": 7.67,
+    "memory_int4_gb": 3.83
+  }
+}
