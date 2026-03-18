@@ -70,15 +70,13 @@ _ANTHROPIC_TOOLS = [
     {
         "name": "estimate_compute",
         "description": (
-            "Compute parameter count, FLOPs per token, and memory estimates for an Architecture IR. "
-            "Call this when the user asks about parameters, memory, or compute cost."
+            "Compute parameter count, FLOPs per token, and memory estimates for the current model. "
+            "Call this when the user asks about parameters, memory, or compute cost. No input required."
         ),
         "input_schema": {
             "type": "object",
-            "properties": {
-                "ir": {"type": "object", "description": "The Architecture IR JSON object"}
-            },
-            "required": ["ir"],
+            "properties": {},
+            "required": [],
         },
     },
     {
@@ -86,21 +84,23 @@ _ANTHROPIC_TOOLS = [
         "description": (
             "Apply an architectural edit to the current model and return the modified IR, "
             "a diff, and compute delta. Call this when the user asks to change the architecture. "
-            "Supported ops: set_repeat, set_param, add_block, remove_block, replace_block."
+            "Supported ops: set_repeat, set_param, add_block, remove_block, replace_block. "
+            "Use block IDs exactly as they appear in the architecture_ir (e.g. 'encoder', 'embeddings', 'pooler')."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "ir": {"type": "object", "description": "Current Architecture IR"},
                 "edit_spec": {
                     "type": "object",
                     "description": (
+                        "Edit specification. op is one of: set_repeat, set_param, add_block, remove_block, replace_block. "
                         'Examples: {"op":"set_repeat","target":"encoder","value":6}, '
-                        '{"op":"set_param","target":"encoder","key":"num_attention_heads","value":8}'
+                        '{"op":"set_param","target":"encoder","key":"num_attention_heads","value":8}, '
+                        '{"op":"remove_block","target":"pooler"}'
                     ),
                 },
             },
-            "required": ["ir", "edit_spec"],
+            "required": ["edit_spec"],
         },
     },
     {
@@ -160,7 +160,9 @@ Guidelines:
 """
 
 
-async def _dispatch_tool(tool_name: str, tool_input: dict) -> dict:
+async def _dispatch_tool(
+    tool_name: str, tool_input: dict, current_ir: ArchitectureIR
+) -> dict:
     """Execute a tool call and return the result dict."""
     try:
         if tool_name == "search_huggingface":
@@ -168,9 +170,14 @@ async def _dispatch_tool(tool_name: str, tool_input: dict) -> dict:
         elif tool_name == "search_web":
             return await tool_search_web(**tool_input)
         elif tool_name == "estimate_compute":
-            return tool_estimate_compute(**tool_input)
+            # IR injected by backend — LLM doesn't need to pass it
+            return tool_estimate_compute(ir=current_ir.model_dump())
         elif tool_name == "apply_edit":
-            return tool_apply_edit(**tool_input)
+            # IR injected by backend — LLM only sends edit_spec
+            return tool_apply_edit(
+                ir=current_ir.model_dump(),
+                edit_spec=tool_input.get("edit_spec", tool_input),
+            )
         elif tool_name == "explain_layer":
             return tool_explain_layer(**tool_input)
         else:
@@ -183,6 +190,7 @@ async def _dispatch_tool(tool_name: str, tool_input: dict) -> dict:
 async def _stream_anthropic(
     messages: list[ChatMessage],
     system: str,
+    ir: ArchitectureIR,
 ) -> AsyncIterator[str]:
     import anthropic
 
@@ -220,7 +228,7 @@ async def _stream_anthropic(
                 if block.type != "tool_use":
                     continue
                 yield f'data: {json.dumps({"type": "tool_call", "tool": block.name, "input": block.input})}\n\n'
-                result = await _dispatch_tool(block.name, block.input)
+                result = await _dispatch_tool(block.name, block.input, ir)
                 yield f'data: {json.dumps({"type": "tool_result", "tool": block.name, "result": result})}\n\n'
                 tool_results.append({
                     "type": "tool_result",
@@ -240,6 +248,7 @@ async def _stream_anthropic(
 async def _stream_openai(
     messages: list[ChatMessage],
     system: str,
+    ir: ArchitectureIR,
 ) -> AsyncIterator[str]:
     from openai import AsyncOpenAI, APIError
 
@@ -280,7 +289,7 @@ async def _stream_openai(
                 tool_name = tc.function.name
                 tool_input = json.loads(tc.function.arguments)
                 yield f'data: {json.dumps({"type": "tool_call", "tool": tool_name, "input": tool_input})}\n\n'
-                result = await _dispatch_tool(tool_name, tool_input)
+                result = await _dispatch_tool(tool_name, tool_input, ir)
                 yield f'data: {json.dumps({"type": "tool_result", "tool": tool_name, "result": result})}\n\n'
                 tool_results.append({
                     "tool_call_id": tc.id,
@@ -312,10 +321,10 @@ async def stream_chat(
     system = _build_system_prompt(ir)
 
     if os.getenv("ANTHROPIC_API_KEY"):
-        async for chunk in _stream_anthropic(messages, system):
+        async for chunk in _stream_anthropic(messages, system, ir):
             yield chunk
     elif os.getenv("OPENAI_API_KEY"):
-        async for chunk in _stream_openai(messages, system):
+        async for chunk in _stream_openai(messages, system, ir):
             yield chunk
     else:
         yield 'data: {"type":"error","error":"No LLM key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in backend/.env"}\n\n'
