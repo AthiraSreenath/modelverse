@@ -2,24 +2,27 @@
 
 # ModelVerse
 
-### Visualize, understand, and edit any ML model — just type its name.
+### The open-source architecture explorer for ML models.
+### Type a name. See every layer. Ask questions. Edit and see the impact — instantly.
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
-![Next.js](https://img.shields.io/badge/UI-Next.js%2015-black?logo=next.js&logoColor=white)
-![React Flow](https://img.shields.io/badge/graph-React%20Flow-6366f1)
-![uv](https://img.shields.io/badge/deps-uv-DE5FE9)
-![License](https://img.shields.io/badge/license-Apache%202.0-D22128)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js%2015-black?logo=next.js&logoColor=white)
+![React Flow](https://img.shields.io/badge/React%20Flow-6366f1?logo=react&logoColor=white)
+![uv](https://img.shields.io/badge/uv-DE5FE9)
+![License](https://img.shields.io/badge/Apache%202.0-D22128)
 
 </div>
 
 ---
 
-Type a HuggingFace model name. ModelVerse fetches the architecture — without downloading weights — and renders it as an interactive graph you can explore layer by layer.
+Most ML tools make you download weights, run scripts, or dig through config files just to answer a basic question — *"how big is this model?"* or *"what does this layer actually do?"*
 
-Click any block to expand it. See the exact parameter formula behind every number. Ask the built-in LLM chat what a layer does, why it's shaped that way, or what would happen if you changed it. Make that change and watch the parameter count and memory footprint update live.
+ModelVerse skips all of that. Type a model name from HuggingFace and it fetches only the `config.json` — a few kilobytes — and builds a full interactive architecture diagram from it. No weights. No setup. Results in seconds.
 
-Everything runs locally. No data leaves your machine except the optional LLM API call.
+From there you can click into any layer to understand it, hover to see the exact parameter formula, or just ask the chat: *"what happens if I reduce the number of layers to 6?"* The LLM applies the change, highlights what moved in the graph, and shows you the exact parameter and memory delta.
+
+It's aimed at ML engineers who want to quickly understand a model before using it, researchers exploring architecture tradeoffs, and students learning how transformers actually work — without needing to read the source code.
 
 ---
 
