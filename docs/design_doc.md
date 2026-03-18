@@ -486,7 +486,19 @@ Three-panel layout, inspired by Netron's structure and Model Anatomy's content:
 
 ## 8. Tech Stack
 
-### Frontend
+**Quick reference**
+
+| Layer | Stack |
+|---|---|
+| Frontend | Next.js 15, React Flow, Zustand, Tailwind CSS, shadcn/ui, Vercel AI SDK |
+| Backend | Python 3.11+, FastAPI, uv |
+| ML / parsing | huggingface_hub, transformers, safetensors, onnx, torch |
+| LLM | Anthropic Claude Sonnet / OpenAI GPT-4o (tool calling + streaming) |
+| Hosting | Vercel (frontend), Railway (backend) |
+
+---
+
+### Frontend (detail)
 
 | Technology | Role | Why |
 |---|---|---|
@@ -498,7 +510,7 @@ Three-panel layout, inspired by Netron's structure and Model Anatomy's content:
 | **Vercel AI SDK** | LLM streaming | Tool call rendering, streaming text, works out of the box with Vercel |
 | **Web Worker (native)** | Graph layout | Dagre layout for large models runs off the main thread |
 
-### Backend
+### Backend (detail)
 
 | Technology | Role | Why |
 |---|---|---|
