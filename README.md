@@ -2,123 +2,135 @@
 
 # ModelVerse
 
-**Understand any ML model — just type its name.**
+**Visualize, explore, and edit any ML model — just type its name.**
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://modelverse.vercel.app)
-
-[**→ Try it now at modelverse.vercel.app**](https://modelverse.vercel.app)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Next.js 15](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
+[![uv](https://img.shields.io/badge/uv-package%20manager-DE5FE9)](https://docs.astral.sh/uv)
 
 </div>
 
 ---
 
-ModelVerse turns any machine learning model into an interactive diagram you can explore, question, and edit — no code, no setup, no downloads.
-
-Type a model name. See its full architecture. Click any layer to understand it. Ask questions. Edit it and watch the parameter count change in real time.
+ModelVerse turns any HuggingFace model into an interactive architecture diagram. Type a name, see every layer, click to explore, ask questions, and edit the architecture — all in one place, without writing a single line of code.
 
 ---
 
-## What you can do
+## Features
 
-**Load any model**
-
-Type a model name from HuggingFace — `bert-base-uncased`, `mistralai/Mistral-7B-v0.1`, `google/flan-t5-xl` — and see its architecture appear as an interactive diagram in seconds.
-
-**Explore the architecture**
-
-- Click any block to expand it and see what's inside
-- Hover over any parameter count to see the exact formula behind it
-- See the tensor shapes flowing between every layer
-
-**Ask questions in plain language**
-
-- *"Why does this model have 12 attention heads?"*
-- *"What does the feed-forward layer actually do?"*
-- *"Which layer is responsible for token classification?"*
-
-**Edit and see the impact instantly**
-
-- *"What if I reduce the number of layers to 6?"*
-- *"What happens if I double the hidden size?"*
-- See parameters, memory, and FLOPs update the moment you ask
+| | |
+|---|---|
+| 🗺️ **Interactive graph** | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. |
+| 📐 **Compute stats** | Parameters, memory (fp16/int4), and FLOPs per token — always visible, always up to date. |
+| 🔍 **Layer inspector** | Click any node to see what it does, how its parameters are calculated, and its exact config. |
+| 💬 **LLM chat** | Ask anything about the architecture in plain English. Powered by Claude or GPT-4o. |
+| ✏️ **Architecture editing** | Tell the chat to change the model. See which nodes changed and the exact compute delta. |
+| ↩️ **Undo history** | Every edit is reversible. Step back through the full edit history. |
 
 ---
 
-## Example session
+## How it works
 
 ```
-→  bert-base-uncased
+You type:  bert-base-uncased
+                │
+                ▼
+   ┌─────────────────────────────────────────────────┐
+   │  Embeddings              23M params              │
+   │       │                                          │
+   │  Transformer Encoder ×12    ← click to expand    │
+   │  │  Self-Attention   2M  ←  hover: see formula   │
+   │  │  LayerNorm        2K                          │
+   │  │  Feed-Forward     5M                          │  ←  graph panel
+   │  └  LayerNorm        2K                          │
+   │       │                                          │
+   │  Pooler               590K                       │
+   └─────────────────────────────────────────────────┘
+   [ 108M params · 209MB fp16 · 22.5B FLOPs/token ]  ←  compute bar
 
-   [Embeddings]  30,522 vocab × 768 dims
-        ↓
-   [Transformer Encoder ×12]   ← click to expand
-     ├─ Self-Attention          params: 2.36M  ← hover to see formula
-     ├─ Feed-Forward            params: 4.72M
-     └─ LayerNorm ×2            params: 3K
-        ↓
-   [Pooler]
-
-   108M params · 209MB at fp16 · 22.5B FLOPs/token
-
-you:  what if I cut the number of layers to 6?
-
-ai:   Parameters would drop from 108M to about 66M (−38%).
-      Memory at fp16: 209MB → 126MB.
-      The model would be faster but less capable — each layer
-      contributes to the encoder's ability to build contextual
-      representations. Here's the updated architecture: [diff shown]
+   ┌─────────────────────┐   ┌────────────────────────┐
+   │  Self-Attention      │   │  you: what if I cut     │
+   │  ──────────────      │   │       layers to 6?      │
+   │  Q  768×768  2.36M  │   │                         │
+   │  K  768×768  2.36M  │   │  ai:  −38% params       │
+   │  V  768×768  2.36M  │   │  209MB → 126MB fp16     │
+   │  O  768×768  2.36M  │   │  [graph updates live]   │
+   └─────────────────────┘   └────────────────────────┘
+         detail panel                 chat panel
 ```
 
 ---
 
-## What's supported
+## Supported models
 
-| Input | Example | Status |
-|---|---|---|
-| Any HuggingFace model by name | `dslim/bert-base-NER`, `google/flan-t5-xl` | Available now |
-| Upload a model file | `.safetensors`, `.onnx`, `.gguf`, `.pt` | Phase 2 — coming soon |
-| Any publicly known model | `"GPT-3"`, `"the original 2017 Transformer"` | Phase 3 — coming soon |
+**Loads instantly** (pre-baked, no network call):
+
+`bert-base-uncased` · `distilbert-base-uncased` · `gpt2` · `t5-base` · `meta-llama/Llama-3.1-8B` · `mistralai/Mistral-7B-v0.1`
+
+**Any other HuggingFace model:**
+
+Type the model ID exactly as it appears on HuggingFace (`owner/model-name`). ModelVerse fetches only the `config.json` — never the weights — and builds the full architecture from it.
+
+> Works with BERT, GPT-2, LLaMA, Mistral, Mixtral, T5, Mamba, DeBERTa, ELECTRA, Falcon, OLMo, Cohere, and more.
 
 ---
 
 ## Run locally
 
-You'll need [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python) and [Node.js 20+](https://nodejs.org).
+**Requirements:** [uv](https://docs.astral.sh/uv/getting-started/installation/) · [Node.js 20+](https://nodejs.org)
 
 ```bash
-git clone https://github.com/athira/modelverse
+git clone https://github.com/AthiraSreenath/modelverse
 cd modelverse
 ```
 
-**Backend** (terminal 1):
+**Terminal 1 — backend**
 ```bash
 cd backend
 uv sync
 cp .env.example .env
-# open .env and add your ANTHROPIC_API_KEY
+# → open .env, paste your ANTHROPIC_API_KEY or OPENAI_API_KEY
 uv run fastapi dev app/main.py
-# → running at http://localhost:8000
 ```
 
-**Frontend** (terminal 2):
+**Terminal 2 — frontend**
 ```bash
 cd frontend
 npm install
 cp .env.example .env.local
 npm run dev
-# → open http://localhost:3000
 ```
 
-Get an API key from [Anthropic](https://console.anthropic.com) or [OpenAI](https://platform.openai.com/api-keys) — either works. The visualizer works without one; you only need it for the chat feature.
+Open **[http://localhost:3000](http://localhost:3000)** → type `bert-base-uncased`.
+
+> **No API key?** The graph, compute stats, and layer inspector all work without one. An Anthropic or OpenAI key is only needed for the chat panel. Get one free at [console.anthropic.com](https://console.anthropic.com) or [platform.openai.com](https://platform.openai.com/api-keys).
+
+---
+
+## Roadmap
+
+```
+Phase 1  ████████████████  ✅ Now       HuggingFace models by name
+Phase 2  ░░░░░░░░░░░░░░░░  🔜 Next      File upload (.safetensors, .onnx, .gguf, .pt)
+Phase 3  ░░░░░░░░░░░░░░░░  🔜 Later     Any model — agentic web + ArXiv search
+Phase 4  ░░░░░░░░░░░░░░░░  🔜 Future    Side-by-side comparison + playground + export
+```
+
+**Phase 2 — File Upload**
+Upload a local model file. ModelVerse reads only the header (tensor names and shapes) — never the weights — and renders the full architecture. Supports `.safetensors`, `.onnx`, `.gguf`, `.pt`.
+
+**Phase 3 — Any Model (Agentic Discovery)**
+Type any model name — `GPT-3`, `"the original 2017 Transformer"`, `AlexNet`. The LLM brain searches HuggingFace, ArXiv, and the web, synthesizes the architecture from whatever evidence it finds, and shows confidence levels for each part.
+
+**Phase 4 — Comparison + Playground + Export**
+Load two models side by side. See exactly what changed — layer by layer, parameter by parameter. Export architectures as JSON, SVG, or directly to PyTorch code.
 
 ---
 
 ## Contributing
 
-Want to add a model family, a file format parser, or contribute code? See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture internals, how-to guides, and the PR process.
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) — architecture overview, how to add a model family parser, how to add a pre-baked model, and the PR process.
 
 ## License
 
