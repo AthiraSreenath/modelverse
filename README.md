@@ -1,19 +1,25 @@
-
+<div align="center">
 
 # ModelVerse
 
-**Visualize, explore, and edit any ML model — just type its name.**
+### Visualize, understand, and edit any ML model — just type its name.
 
-[License: Apache 2.0](LICENSE)
-[Python 3.11+](https://python.org)
-[Next.js 15](https://nextjs.org)
-[uv](https://docs.astral.sh/uv)
+![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
+![Next.js](https://img.shields.io/badge/UI-Next.js%2015-black?logo=next.js&logoColor=white)
+![React Flow](https://img.shields.io/badge/graph-React%20Flow-6366f1)
+![uv](https://img.shields.io/badge/deps-uv-DE5FE9)
+![License](https://img.shields.io/badge/license-Apache%202.0-D22128)
 
-
+</div>
 
 ---
 
-ModelVerse turns any HuggingFace model into an interactive architecture diagram. Type a name, see every layer, click to explore, ask questions, and edit the architecture — all in one place, without writing a single line of code.
+Type a HuggingFace model name. ModelVerse fetches the architecture — without downloading weights — and renders it as an interactive graph you can explore layer by layer.
+
+Click any block to expand it. See the exact parameter formula behind every number. Ask the built-in LLM chat what a layer does, why it's shaped that way, or what would happen if you changed it. Make that change and watch the parameter count and memory footprint update live.
+
+Everything runs locally. No data leaves your machine except the optional LLM API call.
 
 ---
 
