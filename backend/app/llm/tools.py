@@ -74,22 +74,22 @@ async def tool_search_web(query: str) -> dict:
         return {"query": query, "results": [], "error": str(e)}
 
 
-def tool_estimate_compute(ir_dict: dict) -> dict:
+def tool_estimate_compute(ir: dict) -> dict:
     """Estimate compute stats for a given Architecture IR dict."""
     try:
-        ir = ArchitectureIR.model_validate(ir_dict)
-        stats = estimate_compute(ir)
+        ir_obj = ArchitectureIR.model_validate(ir)
+        stats = estimate_compute(ir_obj)
         return stats.model_dump()
     except Exception as e:
         return {"error": str(e)}
 
 
-def tool_apply_edit(ir_dict: dict, edit_spec_dict: dict) -> dict:
+def tool_apply_edit(ir: dict, edit_spec: dict) -> dict:
     """Apply an edit spec to an Architecture IR and return result + diff + compute delta."""
     try:
-        ir = ArchitectureIR.model_validate(ir_dict)
-        spec = EditSpec.model_validate(edit_spec_dict)
-        result = _apply_edit(ir, spec)
+        ir_obj = ArchitectureIR.model_validate(ir)
+        spec = EditSpec.model_validate(edit_spec)
+        result = _apply_edit(ir_obj, spec)
         return result.model_dump()
     except Exception as e:
         return {"error": str(e)}
