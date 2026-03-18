@@ -1,8 +1,12 @@
 """
 LLM Brain — streaming chat with tool calling.
 
-The LLM receives the current Architecture IR in its system prompt.
-It can call 5 tools: search_huggingface, search_web, estimate_compute,
+Provider detection order:
+  1. ANTHROPIC_API_KEY  → Claude Sonnet
+  2. OPENAI_API_KEY     → GPT-4o
+
+The LLM receives the current Architecture IR in its system prompt and
+can call 5 tools: search_huggingface, search_web, estimate_compute,
 apply_edit, explain_layer.
 """
 
@@ -11,8 +15,6 @@ import json
 import logging
 import os
 from typing import AsyncIterator
-
-import anthropic
 
 from ..models.ir import ArchitectureIR
 from ..models.api import ChatMessage
@@ -27,10 +29,11 @@ from .tools import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Tool schemas (Anthropic format)
+# Tool schemas
 # ---------------------------------------------------------------------------
 
-TOOLS = [
+# Anthropic format
+_ANTHROPIC_TOOLS = [
     {
         "name": "search_huggingface",
         "description": (
@@ -43,7 +46,7 @@ TOOLS = [
             "properties": {
                 "model_id": {
                     "type": "string",
-                    "description": "The HuggingFace model ID, e.g. 'bert-base-uncased' or 'mistralai/Mistral-7B-v0.1'"
+                    "description": "The HuggingFace model ID, e.g. 'bert-base-uncased'",
                 }
             },
             "required": ["model_id"],
@@ -59,10 +62,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Specific search query, e.g. 'GPT-3 architecture layers hidden size Brown 2020'"
-                }
+                "query": {"type": "string", "description": "Specific search query"}
             },
             "required": ["query"],
         },
@@ -71,16 +71,12 @@ TOOLS = [
         "name": "estimate_compute",
         "description": (
             "Compute parameter count, FLOPs per token, and memory estimates for an Architecture IR. "
-            "Always call this when the user asks about parameters, memory, or compute cost, "
-            "or when showing the impact of an architectural change."
+            "Call this when the user asks about parameters, memory, or compute cost."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "ir": {
-                    "type": "object",
-                    "description": "The Architecture IR JSON object to estimate compute for"
-                }
+                "ir": {"type": "object", "description": "The Architecture IR JSON object"}
             },
             "required": ["ir"],
         },
@@ -89,9 +85,8 @@ TOOLS = [
         "name": "apply_edit",
         "description": (
             "Apply an architectural edit to the current model and return the modified IR, "
-            "a diff, and compute delta. Always call this when the user asks to change the architecture. "
-            "Supported ops: set_repeat (change layer count), set_param (change hidden_size/num_heads/etc), "
-            "add_block, remove_block, replace_block."
+            "a diff, and compute delta. Call this when the user asks to change the architecture. "
+            "Supported ops: set_repeat, set_param, add_block, remove_block, replace_block."
         ),
         "input_schema": {
             "type": "object",
@@ -100,10 +95,8 @@ TOOLS = [
                 "edit_spec": {
                     "type": "object",
                     "description": (
-                        "Edit specification. Examples: "
-                        '{"op":"set_repeat","target":"encoder","value":6}, '
-                        '{"op":"set_param","target":"encoder","key":"num_attention_heads","value":8}, '
-                        '{"op":"remove_block","target":"pooler"}'
+                        'Examples: {"op":"set_repeat","target":"encoder","value":6}, '
+                        '{"op":"set_param","target":"encoder","key":"num_attention_heads","value":8}'
                     ),
                 },
             },
@@ -113,25 +106,31 @@ TOOLS = [
     {
         "name": "explain_layer",
         "description": (
-            "Return a structured explanation for a layer type, including its mathematical formula, "
-            "PyTorch pseudocode, and architectural motivation. "
-            "Call this when the user clicks a layer or asks what a specific component does."
+            "Return a structured explanation for a layer type including its mathematical formula, "
+            "PyTorch pseudocode, and architectural motivation."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "layer_type": {
-                    "type": "string",
-                    "description": "Layer type string, e.g. 'multi_head_attention', 'feed_forward', 'layer_norm', 'ssm'"
-                },
-                "params": {
-                    "type": "object",
-                    "description": "The layer's params dict from the Architecture IR"
-                },
+                "layer_type": {"type": "string", "description": "e.g. 'multi_head_attention'"},
+                "params": {"type": "object", "description": "Layer params dict from the IR"},
             },
             "required": ["layer_type", "params"],
         },
     },
+]
+
+# OpenAI format — same content, different wrapper
+_OPENAI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": t["input_schema"],
+        },
+    }
+    for t in _ANTHROPIC_TOOLS
 ]
 
 
@@ -155,10 +154,147 @@ Guidelines:
 - Be concise and precise. Cite parameter counts and dimensions when relevant.
 - When asked about compute impact, call estimate_compute — don't guess.
 - When asked to edit the architecture, call apply_edit with the appropriate spec.
-- When showing formula breakdowns, use the actual numbers from the IR (e.g. "768 × 768 × 3 = 1,769,472").
-- If the model in the IR was derived from web search (source_confidence != "exact"), note any uncertainty.
+- When showing formula breakdowns, use the actual numbers from the IR.
+- If source_confidence != "exact", note any uncertainty.
 - Never make up architectural details. Use the IR or call a tool to verify.
 """
+
+
+async def _dispatch_tool(tool_name: str, tool_input: dict) -> dict:
+    """Execute a tool call and return the result dict."""
+    try:
+        if tool_name == "search_huggingface":
+            return await tool_search_huggingface(**tool_input)
+        elif tool_name == "search_web":
+            return await tool_search_web(**tool_input)
+        elif tool_name == "estimate_compute":
+            return tool_estimate_compute(**tool_input)
+        elif tool_name == "apply_edit":
+            return tool_apply_edit(**tool_input)
+        elif tool_name == "explain_layer":
+            return tool_explain_layer(**tool_input)
+        else:
+            return {"error": f"Unknown tool: {tool_name}"}
+    except Exception as e:
+        logger.exception("Tool '%s' raised an error", tool_name)
+        return {"error": str(e)}
+
+
+async def _stream_anthropic(
+    messages: list[ChatMessage],
+    system: str,
+) -> AsyncIterator[str]:
+    import anthropic
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+
+    anthropic_messages = [{"role": m.role, "content": m.content} for m in messages]
+
+    for _round in range(5):
+        try:
+            response = await client.messages.create(
+                model="claude-sonnet-4-5",
+                max_tokens=4096,
+                system=system,
+                messages=anthropic_messages,
+                tools=_ANTHROPIC_TOOLS,  # type: ignore[arg-type]
+            )
+        except anthropic.APIError as e:
+            yield f'data: {json.dumps({"type": "error", "error": str(e)})}\n\n'
+            return
+
+        for block in response.content:
+            if block.type == "text":
+                chunk_size = 20
+                for i in range(0, len(block.text), chunk_size):
+                    yield f'data: {json.dumps({"type": "text", "text": block.text[i:i+chunk_size]})}\n\n'
+
+        if response.stop_reason == "end_turn":
+            yield 'data: {"type":"done"}\n\n'
+            return
+
+        if response.stop_reason == "tool_use":
+            tool_results = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                yield f'data: {json.dumps({"type": "tool_call", "tool": block.name, "input": block.input})}\n\n'
+                result = await _dispatch_tool(block.name, block.input)
+                yield f'data: {json.dumps({"type": "tool_result", "tool": block.name, "result": result})}\n\n'
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": json.dumps(result),
+                })
+            anthropic_messages.append({"role": "assistant", "content": response.content})  # type: ignore
+            anthropic_messages.append({"role": "user", "content": tool_results})
+            continue
+
+        yield 'data: {"type":"done"}\n\n'
+        return
+
+    yield 'data: {"type":"done"}\n\n'
+
+
+async def _stream_openai(
+    messages: list[ChatMessage],
+    system: str,
+) -> AsyncIterator[str]:
+    from openai import AsyncOpenAI, APIError
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    client = AsyncOpenAI(api_key=api_key)
+
+    openai_messages: list[dict] = [{"role": "system", "content": system}]
+    openai_messages += [{"role": m.role, "content": m.content} for m in messages]
+
+    for _round in range(5):
+        try:
+            response = await client.chat.completions.create(
+                model="gpt-4o",
+                max_tokens=4096,
+                messages=openai_messages,  # type: ignore[arg-type]
+                tools=_OPENAI_TOOLS,  # type: ignore[arg-type]
+                tool_choice="auto",
+            )
+        except APIError as e:
+            yield f'data: {json.dumps({"type": "error", "error": str(e)})}\n\n'
+            return
+
+        message = response.choices[0].message
+        stop_reason = response.choices[0].finish_reason
+
+        if message.content:
+            chunk_size = 20
+            for i in range(0, len(message.content), chunk_size):
+                yield f'data: {json.dumps({"type": "text", "text": message.content[i:i+chunk_size]})}\n\n'
+
+        if stop_reason == "stop":
+            yield 'data: {"type":"done"}\n\n'
+            return
+
+        if stop_reason == "tool_calls" and message.tool_calls:
+            tool_results = []
+            for tc in message.tool_calls:
+                tool_name = tc.function.name
+                tool_input = json.loads(tc.function.arguments)
+                yield f'data: {json.dumps({"type": "tool_call", "tool": tool_name, "input": tool_input})}\n\n'
+                result = await _dispatch_tool(tool_name, tool_input)
+                yield f'data: {json.dumps({"type": "tool_result", "tool": tool_name, "result": result})}\n\n'
+                tool_results.append({
+                    "tool_call_id": tc.id,
+                    "role": "tool",
+                    "content": json.dumps(result),
+                })
+            openai_messages.append(message.model_dump())  # type: ignore[arg-type]
+            openai_messages.extend(tool_results)
+            continue
+
+        yield 'data: {"type":"done"}\n\n'
+        return
+
+    yield 'data: {"type":"done"}\n\n'
 
 
 async def stream_chat(
@@ -168,96 +304,18 @@ async def stream_chat(
     """
     Stream a chat response from the LLM Brain.
     Yields Server-Sent Event lines: data: <json>\\n\\n
-    """
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        yield 'data: {"type":"error","error":"ANTHROPIC_API_KEY not set"}\n\n'
-        return
 
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    Provider detection order:
+      ANTHROPIC_API_KEY → Claude Sonnet
+      OPENAI_API_KEY    → GPT-4o
+    """
     system = _build_system_prompt(ir)
 
-    anthropic_messages = [
-        {"role": m.role, "content": m.content}
-        for m in messages
-    ]
-
-    # Agentic loop: allow up to 5 rounds of tool use
-    for _round in range(5):
-        try:
-            response = await client.messages.create(
-                model="claude-sonnet-4-5",
-                max_tokens=4096,
-                system=system,
-                messages=anthropic_messages,
-                tools=TOOLS,  # type: ignore[arg-type]
-            )
-        except anthropic.APIError as e:
-            yield f'data: {json.dumps({"type": "error", "error": str(e)})}\n\n'
-            return
-
-        # Stream text content blocks
-        for block in response.content:
-            if block.type == "text":
-                # Chunk the text for streaming feel
-                text = block.text
-                chunk_size = 20
-                for i in range(0, len(text), chunk_size):
-                    chunk = text[i : i + chunk_size]
-                    yield f'data: {json.dumps({"type": "text", "text": chunk})}\n\n'
-
-        # Check if we're done
-        if response.stop_reason == "end_turn":
-            yield 'data: {"type":"done"}\n\n'
-            return
-
-        # Handle tool calls
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-
-                tool_name = block.name
-                tool_input = block.input
-
-                # Notify frontend a tool is being called
-                yield f'data: {json.dumps({"type": "tool_call", "tool": tool_name, "input": tool_input})}\n\n'
-
-                # Execute the tool
-                try:
-                    if tool_name == "search_huggingface":
-                        result = await tool_search_huggingface(**tool_input)
-                    elif tool_name == "search_web":
-                        result = await tool_search_web(**tool_input)
-                    elif tool_name == "estimate_compute":
-                        result = tool_estimate_compute(**tool_input)
-                    elif tool_name == "apply_edit":
-                        result = tool_apply_edit(**tool_input)
-                    elif tool_name == "explain_layer":
-                        result = tool_explain_layer(**tool_input)
-                    else:
-                        result = {"error": f"Unknown tool: {tool_name}"}
-                except Exception as e:
-                    logger.exception("Tool '%s' raised an error", tool_name)
-                    result = {"error": str(e)}
-
-                # Notify frontend of the tool result
-                yield f'data: {json.dumps({"type": "tool_result", "tool": tool_name, "result": result})}\n\n'
-
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": json.dumps(result),
-                })
-
-            # Add assistant message + tool results to conversation
-            anthropic_messages.append({"role": "assistant", "content": response.content})  # type: ignore
-            anthropic_messages.append({"role": "user", "content": tool_results})
-            continue
-
-        # Unexpected stop reason
-        yield 'data: {"type":"done"}\n\n'
-        return
-
-    yield 'data: {"type":"done"}\n\n'
+    if os.getenv("ANTHROPIC_API_KEY"):
+        async for chunk in _stream_anthropic(messages, system):
+            yield chunk
+    elif os.getenv("OPENAI_API_KEY"):
+        async for chunk in _stream_openai(messages, system):
+            yield chunk
+    else:
+        yield 'data: {"type":"error","error":"No LLM key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in backend/.env"}\n\n'

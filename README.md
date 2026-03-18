@@ -1,15 +1,15 @@
-<div align="center">
+
 
 # ModelVerse
 
 **Visualize, explore, and edit any ML model — just type its name.**
 
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
-[![Next.js 15](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
-[![uv](https://img.shields.io/badge/uv-package%20manager-DE5FE9)](https://docs.astral.sh/uv)
+[License: Apache 2.0](LICENSE)
+[Python 3.11+](https://python.org)
+[Next.js 15](https://nextjs.org)
+[uv](https://docs.astral.sh/uv)
 
-</div>
+
 
 ---
 
@@ -19,14 +19,16 @@ ModelVerse turns any HuggingFace model into an interactive architecture diagram.
 
 ## Features
 
-| | |
-|---|---|
-| 🗺️ **Interactive graph** | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. |
-| 📐 **Compute stats** | Parameters, memory (fp16/int4), and FLOPs per token — always visible, always up to date. |
-| 🔍 **Layer inspector** | Click any node to see what it does, how its parameters are calculated, and its exact config. |
-| 💬 **LLM chat** | Ask anything about the architecture in plain English. Powered by Claude or GPT-4o. |
-| ✏️ **Architecture editing** | Tell the chat to change the model. See which nodes changed and the exact compute delta. |
-| ↩️ **Undo history** | Every edit is reversible. Step back through the full edit history. |
+
+|                             |                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| 🗺️ **Interactive graph**   | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. |
+| 📐 **Compute stats**        | Parameters, memory (fp16/int4), and FLOPs per token — always visible, always up to date.      |
+| 🔍 **Layer inspector**      | Click any node to see what it does, how its parameters are calculated, and its exact config.  |
+| 💬 **LLM chat**             | Ask anything about the architecture in plain English. Powered by Claude or GPT-4o.            |
+| ✏️ **Architecture editing** | Tell the chat to change the model. See which nodes changed and the exact compute delta.       |
+| ↩️ **Undo history**         | Every edit is reversible. Step back through the full edit history.                            |
+
 
 ---
 
@@ -85,26 +87,52 @@ git clone https://github.com/AthiraSreenath/modelverse
 cd modelverse
 ```
 
-**Terminal 1 — backend**
+**Step 1 — Create your env files and add your keys**
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+```
+
+Open `backend/.env` and paste in at least one LLM key:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...    # → console.anthropic.com
+# or
+OPENAI_API_KEY=sk-...           # → platform.openai.com/api-keys
+```
+
+Anthropic is used if both are set; OpenAI is the fallback. The graph, compute stats, and layer inspector work without any key — you only need one for the chat panel.
+
+Optionally add a HuggingFace token (free, lifts API rate limits):
+
+```
+HF_TOKEN=hf_...    # → huggingface.co/settings/tokens
+```
+
+`frontend/.env.local` needs no changes for local development.
+
+---
+
+**Step 2 — Start the backend** *(Terminal 1)*
+
 ```bash
 cd backend
 uv sync
-cp .env.example .env
-# → open .env, paste your ANTHROPIC_API_KEY or OPENAI_API_KEY
 uv run fastapi dev app/main.py
+# → http://localhost:8000
 ```
 
-**Terminal 2 — frontend**
+**Step 3 — Start the frontend** *(Terminal 2)*
+
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local
 npm run dev
+# → http://localhost:3000
 ```
 
-Open **[http://localhost:3000](http://localhost:3000)** → type `bert-base-uncased`.
-
-> **No API key?** The graph, compute stats, and layer inspector all work without one. An Anthropic or OpenAI key is only needed for the chat panel. Get one free at [console.anthropic.com](https://console.anthropic.com) or [platform.openai.com](https://platform.openai.com/api-keys).
+Open **[http://localhost:3000](http://localhost:3000)** and type `bert-base-uncased` to verify everything works.
 
 ---
 
@@ -125,6 +153,14 @@ Type any model name — `GPT-3`, `"the original 2017 Transformer"`, `AlexNet`. T
 
 **Phase 4 — Comparison + Playground + Export**
 Load two models side by side. See exactly what changed — layer by layer, parameter by parameter. Export architectures as JSON, SVG, or directly to PyTorch code.
+
+**LLM provider roadmap**
+
+| Provider | Status |
+|---|---|
+| Anthropic Claude Sonnet | ✅ Supported |
+| OpenAI GPT-4o | ✅ Supported |
+| Ollama (local LLMs) | 🔜 Planned — run the chat entirely on your own machine, no API key needed |
 
 ---
 
