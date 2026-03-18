@@ -201,6 +201,15 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/out/
+
+# Backend local env
+backend/.env
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
