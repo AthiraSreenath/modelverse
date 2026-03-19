@@ -3,6 +3,7 @@
 import { Cpu, MemoryStick, Zap } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { formatParams, formatBytes, formatFlops } from "@/lib/utils";
+import TaskSwitcher from "@/components/TaskSwitcher";
 
 export default function ComputeBar() {
   const { ir } = useStore();
@@ -32,11 +33,11 @@ export default function ComputeBar() {
   ];
 
   return (
-    <div className="flex gap-6 px-4 py-2 bg-slate-900/80 border-b border-slate-800 flex-shrink-0">
-      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider self-center">
+    <div className="flex items-center gap-6 px-4 py-2 bg-slate-900/80 border-b border-slate-800 flex-shrink-0">
+      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
         {ir?.display_name ?? ir?.name}
       </span>
-      <div className="h-4 w-px bg-slate-700 self-center" />
+      <div className="h-4 w-px bg-slate-700" />
       {stats.map((s) => (
         <div key={s.label} className="flex items-center gap-2">
           <span className="text-slate-500">{s.icon}</span>
@@ -53,6 +54,10 @@ export default function ComputeBar() {
           </div>
         </div>
       ))}
+      {/* Task head switcher — only renders for encoder-only models */}
+      <div className="ml-auto">
+        <TaskSwitcher />
+      </div>
     </div>
   );
 }

@@ -3,12 +3,13 @@ import ComputeBar from "@/components/panels/ComputeBar";
 import DetailPanel from "@/components/panels/DetailPanel";
 import ChatPanel from "@/components/panels/ChatPanel";
 import ArchGraphClient from "@/components/graph/ArchGraphClient";
+import ResizablePanel from "@/components/layout/ResizablePanel";
 
 export default function Home() {
   return (
     <div className="h-screen flex flex-col bg-slate-950 overflow-hidden">
-      {/* Top bar */}
-      <header className="flex-shrink-0 flex items-center gap-4 px-4 h-14 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+      {/* Top bar — z-50 ensures the search dropdown floats above the graph */}
+      <header className="relative z-50 flex-shrink-0 flex items-center gap-4 px-4 h-14 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">MV</span>
@@ -42,8 +43,8 @@ export default function Home() {
           <ArchGraphClient />
         </main>
 
-        {/* Right side panels */}
-        <aside className="flex-shrink-0 w-72 flex flex-col border-l border-slate-800 overflow-hidden">
+        {/* Right side panels — draggable to expand leftward */}
+        <ResizablePanel>
           {/* Detail panel — top half */}
           <div className="flex-1 overflow-hidden border-b border-slate-800">
             <DetailPanel />
@@ -53,7 +54,7 @@ export default function Home() {
           <div className="flex-1 overflow-hidden">
             <ChatPanel />
           </div>
-        </aside>
+        </ResizablePanel>
       </div>
     </div>
   );

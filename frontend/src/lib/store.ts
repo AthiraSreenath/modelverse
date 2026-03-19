@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   DiffEntry,
 } from "./ir";
+import { type TaskId, buildTaskHead, inferTask, isEncoderOnly } from "./taskHeads";
 
 interface ModelVerseState {
   // Current Architecture IR
@@ -40,6 +41,10 @@ interface ModelVerseState {
   updateLastAssistantMessage: (text: string) => void;
   clearChat: () => void;
 
+  // Task head switching (encoder-only models)
+  activeTask: TaskId | null;
+  switchTask: (task: TaskId) => void;
+
   // Loading states
   isResolving: boolean;
   setIsResolving: (v: boolean) => void;
@@ -51,7 +56,12 @@ interface ModelVerseState {
 
 export const useStore = create<ModelVerseState>((set, get) => ({
   ir: null,
-  setIR: (ir) => set({ ir, latestDiff: [], resolveError: null }),
+  setIR: (ir) => set({
+    ir,
+    latestDiff: [],
+    resolveError: null,
+    activeTask: isEncoderOnly(ir.blocks) ? inferTask(ir.blocks) : null,
+  }),
 
   irHistory: [],
   pushIRHistory: (ir) => {
@@ -103,6 +113,49 @@ export const useStore = create<ModelVerseState>((set, get) => ({
       return { chatMessages: msgs };
     }),
   clearChat: () => set({ chatMessages: [] }),
+
+  activeTask: null,
+  switchTask: (task) => {
+    const { ir } = get();
+    if (!ir) return;
+
+    const encBlock = ir.blocks.find((b) => b.type === "transformer_stack");
+    const h = (encBlock?.params?.hidden_size as number) ?? 768;
+    const embBlock = ir.blocks.find((b) => b.type === "embedding");
+    const vocabSize = (embBlock?.params?.vocab_size as number) ?? 30522;
+
+    // Everything up to and including the last transformer_stack is the backbone
+    let stackIdx = -1;
+    for (let i = ir.blocks.length - 1; i >= 0; i--) {
+      if (ir.blocks[i].type === "transformer_stack") { stackIdx = i; break; }
+    }
+    const backbone = ir.blocks.slice(0, stackIdx + 1);
+    const newHead = buildTaskHead(task, h, vocabSize);
+    const newBlocks = [...backbone, ...newHead];
+
+    // Recalculate total params
+    const allParams = newBlocks.reduce((s, b) => s + (b.param_count ?? 0), 0);
+    const fp16 = (allParams * 2) / 1e9;
+
+    const newIR: ArchitectureIR = {
+      ...ir,
+      task,
+      blocks: newBlocks,
+      compute: ir.compute
+        ? {
+            ...ir.compute,
+            params_total: allParams,
+            params_head: newHead.reduce((s, b) => s + (b.param_count ?? 0), 0),
+            memory_fp16_gb: fp16,
+            memory_bf16_gb: fp16,
+            memory_fp32_gb: (allParams * 4) / 1e9,
+            memory_int8_gb: (allParams * 1) / 1e9,
+            memory_int4_gb: (allParams * 0.5) / 1e9,
+          }
+        : ir.compute,
+    };
+    set({ ir: newIR, activeTask: task, latestDiff: [] });
+  },
 
   isResolving: false,
   setIsResolving: (v) => set({ isResolving: v }),
