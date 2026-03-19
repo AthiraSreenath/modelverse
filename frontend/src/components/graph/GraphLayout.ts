@@ -94,9 +94,10 @@ export function buildGraphElements(
       const childrenStartY = y;
 
       for (const child of block.children) {
+        const childIsExpanded = expandedBlockIds.has(child.id);
         const childNodeData: BlockNodeData = {
           block: child,
-          isExpanded: expandedBlockIds.has(child.id),
+          isExpanded: childIsExpanded,
           isDiffed: diffedIds.has(child.id),
           diffDelta: diffedIds.get(child.id),
         };
@@ -129,6 +130,53 @@ export function buildGraphElements(
 
         childPrevId = `${block.id}__${child.id}`;
         y += NODE_HEIGHT + CHILD_VERT_GAP;
+
+        // ── Grandchild expansion (e.g. MoE FFN → Router / Expert FFNs / Combine) ──
+        if (childIsExpanded && child.children.length > 0) {
+          const gcX = childX + CHILD_X_OFFSET;
+          let gcPrevId: string | null = null;
+          const gcParentNodeId = `${block.id}__${child.id}`;
+
+          for (const gc of child.children) {
+            const gcId = `${block.id}__${child.id}__${gc.id}`;
+            const gcData: BlockNodeData = {
+              block: gc,
+              isExpanded: false,
+              isDiffed: diffedIds.has(gc.id),
+              diffDelta: diffedIds.get(gc.id),
+            };
+
+            nodes.push({
+              id: gcId,
+              type: "blockNode",
+              position: { x: gcX, y },
+              data: { data: gcData },
+              style: { width: NODE_WIDTH },
+            });
+
+            if (gcPrevId) {
+              edges.push({
+                id: `${gcPrevId}->${gcId}`,
+                source: gcPrevId,
+                target: gcId,
+                type: "smoothstep",
+                style: { stroke: "#a855f7", strokeWidth: 1 },
+              });
+            } else {
+              edges.push({
+                id: `${gcParentNodeId}->${gcId}`,
+                source: gcParentNodeId,
+                target: gcId,
+                type: "smoothstep",
+                style: { stroke: "#a855f7", strokeWidth: 1, strokeDasharray: "4" },
+              });
+            }
+
+            gcPrevId = gcId;
+            y += NODE_HEIGHT + CHILD_VERT_GAP;
+          }
+          y += CHILD_VERT_GAP; // extra breathing room after grandchildren
+        }
       }
 
       // Repeat label — only shown when the block repeats more than once.
