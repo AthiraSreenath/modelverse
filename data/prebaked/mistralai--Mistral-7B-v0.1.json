@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0",
   "name": "mistralai/Mistral-7B-v0.1",
-  "display_name": "Mistral 7B v0.1",
+  "display_name": "Mistral (~8B)",
   "family": "mistral",
   "task": "text-generation",
-  "source": "prebaked",
+  "source": "hf_config",
   "source_confidence": "exact",
   "source_refs": [],
   "blocks": [
@@ -20,7 +20,9 @@
       },
       "repeat": 1,
       "children": [],
-      "param_count": 131072000
+      "param_count": 131072000,
+      "notes": null,
+      "unknown_fields": []
     },
     {
       "id": "layers",
@@ -32,10 +34,8 @@
         "num_attention_heads": 32,
         "num_key_value_heads": 8,
         "intermediate_size": 14336,
-        "hidden_act": "silu",
         "attention_type": "grouped_query",
-        "is_causal": true,
-        "sliding_window": 4096
+        "is_causal": true
       },
       "repeat": 32,
       "children": [
@@ -49,24 +49,38 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 4096
+          "param_count": 4096,
+          "notes": null,
+          "unknown_fields": []
         },
         {
           "id": "self_attn",
-          "label": "Sliding Window GQA",
+          "label": "GQA",
           "type": "multi_head_attention",
           "params": {
             "hidden_size": 4096,
             "num_heads": 32,
             "head_dim": 128,
-            "num_kv_heads": 8,
             "attention_type": "grouped_query",
             "is_causal": true,
-            "sliding_window": 4096
+            "num_kv_heads": 8
           },
           "repeat": 1,
           "children": [],
-          "param_count": 33554432
+          "param_count": 41943040,
+          "notes": null,
+          "unknown_fields": []
+        },
+        {
+          "id": "add_attn",
+          "label": "Add (Residual)",
+          "type": "add",
+          "params": {},
+          "repeat": 1,
+          "children": [],
+          "param_count": 0,
+          "notes": "h = x + Attention(RMSNorm(x))  \u2014 residual 1 (Pre-LN: Add after attention, before next norm).",
+          "unknown_fields": []
         },
         {
           "id": "post_attention_layernorm",
@@ -78,7 +92,9 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 4096
+          "param_count": 4096,
+          "notes": null,
+          "unknown_fields": []
         },
         {
           "id": "mlp",
@@ -87,14 +103,29 @@
           "params": {
             "hidden_size": 4096,
             "intermediate_size": 14336,
-            "activation": "swiglu"
+            "activation": "silu"
           },
           "repeat": 1,
           "children": [],
-          "param_count": 176160768
+          "param_count": 176160768,
+          "notes": null,
+          "unknown_fields": []
+        },
+        {
+          "id": "add_ffn",
+          "label": "Add (Residual)",
+          "type": "add",
+          "params": {},
+          "repeat": 1,
+          "children": [],
+          "param_count": 0,
+          "notes": "h = h + FFN(RMSNorm(h))  \u2014 residual 2 (Pre-LN: Add after FFN).",
+          "unknown_fields": []
         }
       ],
-      "param_count": 6710886400
+      "param_count": null,
+      "notes": null,
+      "unknown_fields": []
     },
     {
       "id": "norm",
@@ -106,7 +137,9 @@
       },
       "repeat": 1,
       "children": [],
-      "param_count": 4096
+      "param_count": 4096,
+      "notes": null,
+      "unknown_fields": []
     },
     {
       "id": "lm_head",
@@ -119,19 +152,21 @@
       },
       "repeat": 1,
       "children": [],
-      "param_count": 131072000
+      "param_count": 131072000,
+      "notes": null,
+      "unknown_fields": []
     }
   ],
   "compute": {
-    "params_total": 6973296640,
+    "params_total": 7241732096,
     "params_embedding": 131072000,
-    "params_encoder": 6711148544,
+    "params_encoder": 6979584000,
     "params_head": 131076096,
     "flops_per_token": 14092861440,
-    "memory_fp32_gb": 25.978,
-    "memory_fp16_gb": 12.989,
-    "memory_bf16_gb": 12.989,
-    "memory_int8_gb": 6.494,
-    "memory_int4_gb": 3.247
+    "memory_fp32_gb": 26.978,
+    "memory_fp16_gb": 13.489,
+    "memory_bf16_gb": 13.489,
+    "memory_int8_gb": 6.744,
+    "memory_int4_gb": 3.372
   }
 }

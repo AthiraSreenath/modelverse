@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0",
   "name": "distilbert-base-uncased",
-  "display_name": "DistilBERT Base Uncased",
+  "display_name": "distilbert-base-uncased",
   "family": "distilbert",
   "task": "fill-mask",
-  "source": "prebaked",
+  "source": "hf_config",
   "source_confidence": "exact",
   "source_refs": [],
   "blocks": [
@@ -20,18 +20,19 @@
       },
       "repeat": 1,
       "children": [],
-      "param_count": 23454720
+      "param_count": 23835648,
+      "notes": null,
+      "unknown_fields": []
     },
     {
       "id": "transformer",
-      "label": "Transformer",
+      "label": "Transformer Encoder",
       "type": "transformer_stack",
       "params": {
         "hidden_size": 768,
         "num_hidden_layers": 6,
         "num_attention_heads": 12,
         "intermediate_size": 3072,
-        "hidden_act": "gelu",
         "attention_type": "multi_head",
         "is_causal": false
       },
@@ -50,10 +51,23 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 2362368
+          "param_count": 2359296,
+          "notes": null,
+          "unknown_fields": []
         },
         {
-          "id": "sa_layernorm",
+          "id": "add_attn",
+          "label": "Add (Residual)",
+          "type": "add",
+          "params": {},
+          "repeat": 1,
+          "children": [],
+          "param_count": 0,
+          "notes": "h = x + Attention(x)  \u2014 residual 1 (Post-LN: Add before LayerNorm).",
+          "unknown_fields": []
+        },
+        {
+          "id": "attn_layernorm",
           "label": "LayerNorm",
           "type": "layer_norm",
           "params": {
@@ -62,7 +76,9 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 1536
+          "param_count": 1536,
+          "notes": null,
+          "unknown_fields": []
         },
         {
           "id": "ffn",
@@ -75,10 +91,23 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 4722688
+          "param_count": 4722432,
+          "notes": null,
+          "unknown_fields": []
         },
         {
-          "id": "output_layernorm",
+          "id": "add_ffn",
+          "label": "Add (Residual)",
+          "type": "add",
+          "params": {},
+          "repeat": 1,
+          "children": [],
+          "param_count": 0,
+          "notes": "h = h + FFN(h)  \u2014 residual 2 (Post-LN: Add before LayerNorm).",
+          "unknown_fields": []
+        },
+        {
+          "id": "ffn_layernorm",
           "label": "LayerNorm",
           "type": "layer_norm",
           "params": {
@@ -87,22 +116,41 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 1536
+          "param_count": 1536,
+          "notes": null,
+          "unknown_fields": []
         }
       ],
-      "param_count": 42527232
+      "param_count": null,
+      "notes": null,
+      "unknown_fields": []
+    },
+    {
+      "id": "lm_head",
+      "label": "MLM Head",
+      "type": "linear",
+      "params": {
+        "in_features": 768,
+        "out_features": 30522,
+        "bias": true
+      },
+      "repeat": 1,
+      "children": [],
+      "param_count": 23440896,
+      "notes": null,
+      "unknown_fields": []
     }
   ],
   "compute": {
-    "params_total": 65983488,
-    "params_embedding": 23454720,
-    "params_encoder": 42528768,
-    "params_head": 0,
+    "params_total": 89785344,
+    "params_embedding": 23835648,
+    "params_encoder": 42508800,
+    "params_head": 23440896,
     "flops_per_token": 89653248,
-    "memory_fp32_gb": 0.246,
-    "memory_fp16_gb": 0.123,
-    "memory_bf16_gb": 0.123,
-    "memory_int8_gb": 0.061,
-    "memory_int4_gb": 0.031
+    "memory_fp32_gb": 0.334,
+    "memory_fp16_gb": 0.167,
+    "memory_bf16_gb": 0.167,
+    "memory_int8_gb": 0.084,
+    "memory_int4_gb": 0.042
   }
 }

@@ -24,6 +24,7 @@ const BLOCK_COLORS: Record<string, string> = {
   linear: "border-emerald-400/60 bg-emerald-400/10",
   ssm: "border-cyan-400/60 bg-cyan-400/10",
   conv1d: "border-teal-400/60 bg-teal-400/10",
+  add: "border-green-500/50 bg-green-500/8",
   unknown: "border-slate-500/40 bg-slate-500/5",
 };
 
@@ -37,6 +38,7 @@ const BLOCK_DOT: Record<string, string> = {
   linear: "bg-emerald-400",
   ssm: "bg-cyan-400",
   conv1d: "bg-teal-400",
+  add: "bg-green-400",
   unknown: "bg-slate-400",
 };
 
@@ -66,8 +68,9 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
 
   // For container blocks (children present), param_count already covers all repeats.
   // For leaf blocks, param_count is per-instance and must be scaled by repeat.
+  // Zero-param blocks (Add/Residual nodes) show no param line.
   const paramCount =
-    block.param_count != null
+    block.param_count != null && block.param_count > 0
       ? formatParams(
           block.children.length > 0
             ? block.param_count

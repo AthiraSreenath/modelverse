@@ -48,6 +48,7 @@ class BlockType(str, Enum):
     POOLING = "pooling"
     DROPOUT = "dropout"
     ACTIVATION = "activation"
+    ADD = "add"            # Residual addition: output = x + sublayer(x)
     UNKNOWN = "unknown"
 
 

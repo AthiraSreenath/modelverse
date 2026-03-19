@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0",
   "name": "gpt2",
-  "display_name": "GPT-2",
+  "display_name": "GPT-2 (85M)",
   "family": "gpt2",
   "task": "text-generation",
-  "source": "prebaked",
+  "source": "hf_config",
   "source_confidence": "exact",
   "source_refs": [],
   "blocks": [
@@ -20,7 +20,9 @@
       },
       "repeat": 1,
       "children": [],
-      "param_count": 38597376
+      "param_count": 39385344,
+      "notes": null,
+      "unknown_fields": []
     },
     {
       "id": "transformer",
@@ -31,7 +33,6 @@
         "num_hidden_layers": 12,
         "num_attention_heads": 12,
         "intermediate_size": 3072,
-        "hidden_act": "gelu_new",
         "attention_type": "multi_head",
         "is_causal": true
       },
@@ -47,7 +48,9 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 1536
+          "param_count": 1536,
+          "notes": null,
+          "unknown_fields": []
         },
         {
           "id": "attn",
@@ -62,7 +65,20 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 2362368
+          "param_count": 2359296,
+          "notes": null,
+          "unknown_fields": []
+        },
+        {
+          "id": "add_attn",
+          "label": "Add (Residual)",
+          "type": "add",
+          "params": {},
+          "repeat": 1,
+          "children": [],
+          "param_count": 0,
+          "notes": "h = x + Attention(LN(x))  \u2014 residual reconnects the pre-LN input after attention.",
+          "unknown_fields": []
         },
         {
           "id": "ln_2",
@@ -74,7 +90,9 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 1536
+          "param_count": 1536,
+          "notes": null,
+          "unknown_fields": []
         },
         {
           "id": "mlp",
@@ -87,10 +105,25 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 4722688
+          "param_count": 4722432,
+          "notes": null,
+          "unknown_fields": []
+        },
+        {
+          "id": "add_ffn",
+          "label": "Add (Residual)",
+          "type": "add",
+          "params": {},
+          "repeat": 1,
+          "children": [],
+          "param_count": 0,
+          "notes": "h = h + FFN(LN(h))  \u2014 second residual reconnects input after the feed-forward block.",
+          "unknown_fields": []
         }
       ],
-      "param_count": 85054464
+      "param_count": null,
+      "notes": null,
+      "unknown_fields": []
     },
     {
       "id": "ln_f",
@@ -102,19 +135,21 @@
       },
       "repeat": 1,
       "children": [],
-      "param_count": 1536
+      "param_count": 1536,
+      "notes": null,
+      "unknown_fields": []
     }
   ],
   "compute": {
-    "params_total": 123656448,
-    "params_embedding": 38597376,
-    "params_encoder": 85057536,
+    "params_total": 124404480,
+    "params_embedding": 39385344,
+    "params_encoder": 85017600,
     "params_head": 1536,
     "flops_per_token": 179306496,
-    "memory_fp32_gb": 0.461,
-    "memory_fp16_gb": 0.23,
-    "memory_bf16_gb": 0.23,
-    "memory_int8_gb": 0.115,
+    "memory_fp32_gb": 0.463,
+    "memory_fp16_gb": 0.232,
+    "memory_bf16_gb": 0.232,
+    "memory_int8_gb": 0.116,
     "memory_int4_gb": 0.058
   }
 }
