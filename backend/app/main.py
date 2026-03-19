@@ -8,7 +8,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
@@ -25,6 +25,7 @@ from .models.api import (
 from .models.ir import EditResult
 from .resolvers.router import resolve
 from .resolvers.prebaked import list_prebaked
+from .resolvers.file_parser import parse_uploaded_file, SUPPORTED_EXTENSIONS
 from .compute.estimator import estimate_compute
 from .edit.engine import apply_edit
 from .llm.brain import stream_chat
@@ -144,6 +145,48 @@ async def chat(req: ChatRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/upload")
+async def upload_model_file(file: UploadFile = File(...)):
+    """
+    Parse an uploaded model file and return its Architecture IR.
+
+    Reads only the header/metadata — model weights are never loaded.
+    Supported formats: .safetensors, .gguf, .json (HF config), .bin/.pt/.pth
+
+    For large GGUF / safetensors files: only the first 32 MB are read
+    (sufficient for any metadata header).
+    """
+    filename = file.filename or "uploaded_model"
+    from pathlib import Path
+    ext = Path(filename).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        exts = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported format '{ext}'. Supported: {exts}",
+        )
+
+    # Read only the first 32 MB — enough for any header / config file.
+    # For full weights we only ever need the header, not the tensor data.
+    MAX_HEADER_BYTES = 32 * 1024 * 1024
+    data = await file.read(MAX_HEADER_BYTES)
+
+    try:
+        ir_dict = parse_uploaded_file(data, filename)
+        return ir_dict
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Error parsing uploaded file '%s'", filename)
+        raise HTTPException(status_code=500, detail=f"Parse error: {e}")
+
+
+@app.get("/formats", response_model=list[str])
+async def get_supported_formats():
+    """List supported upload file formats."""
+    return sorted(SUPPORTED_EXTENSIONS)
 
 
 @app.get("/prebaked", response_model=list[str])

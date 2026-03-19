@@ -53,6 +53,20 @@ export async function listPrebaked(): Promise<string[]> {
   return res.json();
 }
 
+/** Upload a local model file (.safetensors, .gguf, .json, .bin, .pt, .pth) */
+export async function uploadModel(file: File): Promise<{ ir: ArchitectureIR }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BACKEND}/upload`, { method: "POST", body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? `HTTP ${res.status}`);
+  }
+  // /upload returns the IR dict directly (not wrapped in {ir: ...})
+  const ir = await res.json();
+  return { ir };
+}
+
 /**
  * Stream a chat response from the LLM Brain.
  * Yields parsed ChatEvent objects.

@@ -219,20 +219,24 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
         param_count=vocab_size * d_model,
     )
 
+    # T5LayerNorm is weight-only (no bias) — equivalent to RMSNorm
+    # Gated activations (gelu_new, geglu, silu) use 3 matrices; relu uses 2
+    _is_gated = config.get("dense_act_fn", "relu") in ("gelu_new", "gelu_pytorch_tanh", "geglu", "silu", "swiglu")
+    _ffn_matrices = 3 if _is_gated else 2
     enc_children = [
         ArchBlock(id="self_attn", label="Self-Attention (relative pos)", type=BlockType.MULTI_HEAD_ATTENTION,
                   params={"hidden_size": d_model, "num_heads": num_heads, "head_dim": d_kv,
                           "attention_type": "multi_head", "is_causal": False},
                   param_count=4 * d_model * (num_heads * d_kv)),
         _add_block("add_attn", "h = x + Attention(LN(x))  - residual 1 (T5 Pre-LN style)."),
-        ArchBlock(id="layer_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
-                  params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
-        ArchBlock(id="ffn", label="FFN", type=BlockType.FEED_FORWARD,
+        ArchBlock(id="layer_norm", label="RMSNorm", type=BlockType.LAYER_NORM,
+                  params={"normalized_shape": d_model, "norm_type": "rms_norm"}, param_count=d_model),
+        ArchBlock(id="ffn", label="FFN" if not _is_gated else "Gated FFN", type=BlockType.FEED_FORWARD,
                   params={"hidden_size": d_model, "intermediate_size": d_ff, "activation": act.value},
-                  param_count=2 * d_model * d_ff),
+                  param_count=_ffn_matrices * d_model * d_ff),
         _add_block("add_ffn", "h = h + FFN(LN(h))  - residual 2 (T5 Pre-LN style)."),
-        ArchBlock(id="ffn_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
-                  params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
+        ArchBlock(id="ffn_norm", label="RMSNorm", type=BlockType.LAYER_NORM,
+                  params={"normalized_shape": d_model, "norm_type": "rms_norm"}, param_count=d_model),
     ]
     encoder = ArchBlock(id="encoder", label="T5 Encoder", type=BlockType.TRANSFORMER_STACK,
                         params={"hidden_size": d_model, "num_hidden_layers": num_encoder_layers,
@@ -252,14 +256,14 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
                           "attention_type": "multi_head", "is_causal": False},
                   param_count=4 * d_model * (num_heads * d_kv)),
         _add_block("add_cross_attn", "h = h + CrossAttention(LN(h), encoder_output)  - residual 2 (T5 decoder)."),
-        ArchBlock(id="layer_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
-                  params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
-        ArchBlock(id="ffn", label="FFN", type=BlockType.FEED_FORWARD,
+        ArchBlock(id="layer_norm", label="RMSNorm", type=BlockType.LAYER_NORM,
+                  params={"normalized_shape": d_model, "norm_type": "rms_norm"}, param_count=d_model),
+        ArchBlock(id="ffn", label="FFN" if not _is_gated else "Gated FFN", type=BlockType.FEED_FORWARD,
                   params={"hidden_size": d_model, "intermediate_size": d_ff, "activation": act.value},
-                  param_count=2 * d_model * d_ff),
+                  param_count=_ffn_matrices * d_model * d_ff),
         _add_block("add_ffn", "h = h + FFN(LN(h))  - residual 3 (T5 decoder)."),
-        ArchBlock(id="ffn_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
-                  params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
+        ArchBlock(id="ffn_norm", label="RMSNorm", type=BlockType.LAYER_NORM,
+                  params={"normalized_shape": d_model, "norm_type": "rms_norm"}, param_count=d_model),
     ]
     decoder = ArchBlock(id="decoder", label="T5 Decoder", type=BlockType.TRANSFORMER_STACK,
                         params={"hidden_size": d_model, "num_hidden_layers": num_decoder_layers,

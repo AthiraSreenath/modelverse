@@ -142,6 +142,8 @@ export const useStore = create<ModelVerseState>((set, get) => ({
     const allParams = newBlocks.reduce((s, b) => s + (b.param_count ?? 0), 0);
     const fp16 = (allParams * 2) / 1e9;
 
+    // Task heads (linear classifiers) add negligible FLOPs vs the encoder stack.
+    // Reuse backbone flops_per_token unchanged — it's dominated by attention + FFN.
     const newIR: ArchitectureIR = {
       ...ir,
       task,
@@ -156,6 +158,8 @@ export const useStore = create<ModelVerseState>((set, get) => ({
             memory_fp32_gb: (allParams * 4) / 1e9,
             memory_int8_gb: (allParams * 1) / 1e9,
             memory_int4_gb: (allParams * 0.5) / 1e9,
+            // flops_per_token: backbone flops dominate; head adds 2*h*num_labels ≈ negligible
+            flops_per_token: ir.compute.flops_per_token,
           }
         : ir.compute,
     };

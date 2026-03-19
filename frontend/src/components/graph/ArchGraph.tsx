@@ -1,9 +1,5 @@
 "use client";
 
-"use client";
-
-"use client";
-
 import {
   ReactFlow,
   Background,

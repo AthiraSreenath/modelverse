@@ -105,11 +105,13 @@ def _count_attn_flops(block: ArchBlock, seq_len: int = 512) -> int:
     q_flops = 2 * h * num_heads * head_dim
     k_flops = 2 * h * num_kv * head_dim
     v_flops = 2 * h * num_kv * head_dim
-    # Attention scores: 2 * seq_len * num_heads * head_dim (per query position)
+    # Attention scores Q@K^T: 2 * seq_len * num_heads * head_dim
     score_flops = 2 * seq_len * num_heads * head_dim
+    # Value aggregation softmax(QK^T)@V: same cost as scoring
+    value_agg_flops = 2 * seq_len * num_heads * head_dim
     # Output projection
     o_flops = 2 * num_heads * head_dim * h
-    return q_flops + k_flops + v_flops + score_flops + o_flops
+    return q_flops + k_flops + v_flops + score_flops + value_agg_flops + o_flops
 
 
 def _count_ffn_flops(block: ArchBlock) -> int:
