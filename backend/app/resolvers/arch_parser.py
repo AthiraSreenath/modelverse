@@ -394,12 +394,39 @@ def _parse_llama_family(config: dict, model_id: str) -> ArchitectureIR:
     if config.get("sliding_window"):
         attn_params["sliding_window"] = config["sliding_window"]
 
+    head_dim = h // num_heads
+    q_params = h * num_heads * head_dim
+    k_params = h * num_kv_heads * head_dim
+    v_params = h * num_kv_heads * head_dim
+    o_params = num_heads * head_dim * h
+    attn_total = q_params + k_params + v_params + o_params
+
+    if attn_type == AttentionType.GQA:
+        attn_notes = (
+            f"Grouped-Query Attention (GQA): {num_heads} query heads, {num_kv_heads} KV heads.\n"
+            f"Q projection: {h:,} -> {num_heads} x {head_dim} = {q_params / 1e6:.2f}M  (all {num_heads} query heads)\n"
+            f"K projection: {h:,} -> {num_kv_heads} x {head_dim} = {k_params / 1e6:.2f}M  ({num_kv_heads} KV heads only)\n"
+            f"V projection: {h:,} -> {num_kv_heads} x {head_dim} = {v_params / 1e6:.2f}M  ({num_kv_heads} KV heads only)\n"
+            f"O projection: {num_heads} x {head_dim} -> {h:,} = {o_params / 1e6:.2f}M  (all {num_heads} query heads)\n"
+            f"Total: {attn_total / 1e6:.2f}M  "
+            f"({num_heads - num_kv_heads} fewer KV head pairs saves "
+            f"{(num_heads - num_kv_heads) * 2 * h * head_dim / 1e6:.2f}M vs full MHA)"
+        )
+    else:
+        attn_notes = (
+            f"Multi-Head Attention: {num_heads} heads, head_dim={head_dim}.\n"
+            f"Q+K+V projections: 3 x {h:,} x {num_heads * head_dim:,} = {(q_params + k_params + v_params) / 1e6:.2f}M\n"
+            f"O projection: {num_heads * head_dim:,} x {h:,} = {o_params / 1e6:.2f}M\n"
+            f"Total: {attn_total / 1e6:.2f}M"
+        )
+
     attn_block = ArchBlock(
         id="self_attn",
         label=f"{'Sliding Window ' if config.get('sliding_window') else ''}{'GQA' if attn_type == AttentionType.GQA else 'MHA'}",
         type=BlockType.MULTI_HEAD_ATTENTION,
         params=attn_params,
         param_count=_gqa_params(h, num_heads, num_kv_heads),
+        notes=attn_notes,
     )
     post_norm = ArchBlock(
         id="post_attention_layernorm",
@@ -582,9 +609,22 @@ def _build_task_head(archs: list[str], config: dict, h: int) -> ArchBlock | None
                          param_count=h * 2 + 2)
     if "maskedlm" in arch_str or "formaskedlm" in arch_str:
         vocab_size = config.get("vocab_size", 30522)
-        return ArchBlock(id="lm_head", label="MLM Head", type=BlockType.LINEAR,
-                         params={"in_features": h, "out_features": vocab_size, "bias": True},
-                         param_count=h * vocab_size)
+        return ArchBlock(
+            id="lm_head",
+            label="MLM Head (weight-tied)",
+            type=BlockType.LINEAR,
+            params={"in_features": h, "out_features": vocab_size, "bias": True},
+            # Weight-tied to the input embedding matrix - same {vocab_size}x{h} tensor is reused.
+            # No extra parameters are stored; counting them would double-count the embedding.
+            param_count=0,
+            notes=(
+                f"Linear({h} -> {vocab_size:,}) applied to every token position to predict "
+                f"masked tokens. The weight matrix ({h:,} x {vocab_size:,} = "
+                f"{h * vocab_size / 1e6:.1f}M values) is TIED to the input embedding "
+                f"table - the same tensor is shared, so no additional parameters are stored. "
+                f"Only the output bias ({vocab_size:,} params) is unique to this layer."
+            ),
+        )
     return None
 
 

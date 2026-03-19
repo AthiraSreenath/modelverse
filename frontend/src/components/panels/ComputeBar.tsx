@@ -38,18 +38,28 @@ export default function ComputeBar() {
       label: "Parameters",
       value: formatParams(c.params_total),
       sub: `${formatParams(c.params_embedding)} emb · ${formatParams(c.params_encoder)} enc`,
+      tooltip:
+        "Exact - derived directly from model config. " +
+        "MLM heads weight-tied to embeddings are excluded to avoid double-counting.",
     },
     {
       icon: <MemoryStick className="w-3.5 h-3.5" />,
       label: "Memory (fp16)",
       value: c.memory_fp16_gb != null ? formatBytes(c.memory_fp16_gb) : "-",
       sub: c.memory_int4_gb != null ? `${formatBytes(c.memory_int4_gb)} @ int4` : "",
+      tooltip:
+        "Estimated - model weight memory only (params × 2 bytes for fp16). " +
+        "Excludes KV cache, activations, and optimizer state.",
     },
     {
       icon: <Zap className="w-3.5 h-3.5" />,
       label: "FLOPs",
       value: c.flops_per_token != null ? formatFlops(c.flops_per_token) : "-",
       sub: "",
+      tooltip:
+        "Estimated - forward-pass FLOPs per token. " +
+        "Counts attention QKV/O projections + FFN matrix multiplications. " +
+        "LayerNorm, activations, and embeddings excluded (<1% of total).",
     },
   ];
 
@@ -70,6 +80,14 @@ export default function ComputeBar() {
               <span className="text-sm font-mono font-semibold text-white">
                 {s.value}
               </span>
+              {s.tooltip && (
+                <span
+                  title={s.tooltip}
+                  className="text-[10px] text-slate-600 hover:text-slate-400 cursor-help select-none leading-none"
+                >
+                  ⓘ
+                </span>
+              )}
             </div>
             {s.sub && (
               <div className="text-[10px] text-slate-500">{s.sub}</div>
@@ -92,6 +110,17 @@ export default function ComputeBar() {
               <span className="text-sm font-mono font-semibold text-white">
                 {formatBytes(c.kv_cache_fp16_gb)}
               </span>
+              <span
+                title={
+                  "Estimated - key/value cache memory at fp16. " +
+                  "Formula: 2 (K+V) × layers × kv_heads × head_dim × seq_len × 2 bytes. " +
+                  "For GQA models (LLaMA, Mistral) uses the reduced num_kv_heads. " +
+                  "For T5 includes both decoder self-attention and cross-attention KV."
+                }
+                className="text-[10px] text-slate-600 hover:text-slate-400 cursor-help select-none leading-none"
+              >
+                ⓘ
+              </span>
             </div>
             <div className="text-[10px] text-slate-500">
               fp16 @ {(c.kv_cache_ref_seq_len ?? 2048).toLocaleString()} tokens
@@ -113,6 +142,18 @@ export default function ComputeBar() {
             </span>
             <span className="text-[10px] text-slate-500">
               {isEncoder ? "/seq" : "/tok"}
+            </span>
+            <span
+              title={
+                "Estimated lower bound - memory-bandwidth-bound roofline model (batch=1, fp16). " +
+                "Formula: model_bytes / memory_bandwidth. " +
+                "Assumes 100% VRAM bandwidth utilization. " +
+                "Real latency is typically 1.5-3× higher due to software overhead and compute constraints. " +
+                (isEncoder ? "For encoder models: time per full-sequence forward pass." : "For decoder models: time per output token.")
+              }
+              className="text-[10px] text-slate-600 hover:text-slate-400 cursor-help select-none leading-none"
+            >
+              ⓘ
             </span>
           </div>
           <div className="flex items-center gap-1 text-[10px] text-slate-500">

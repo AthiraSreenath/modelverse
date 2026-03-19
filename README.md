@@ -1,18 +1,19 @@
-<div align="center">
+
 
 # ModelVerse
 
 ### The open-source architecture explorer for ML models.
+
 ### Type a name. See every layer. Ask questions. Edit and see the impact - instantly.
 
-![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js%2015-black?logo=next.js&logoColor=white)
-![React Flow](https://img.shields.io/badge/React%20Flow-6366f1?logo=react&logoColor=white)
-![uv](https://img.shields.io/badge/uv-DE5FE9)
-![License](https://img.shields.io/badge/Apache%202.0-D22128)
+Python
+FastAPI
+Next.js
+React Flow
+uv
+License
 
-</div>
+
 
 ---
 
@@ -29,14 +30,14 @@ It's aimed at ML engineers who want to quickly understand a model before using i
 ## Features
 
 
-|                             |                                                                                               |
-| --------------------------- | --------------------------------------------------------------------------------------------- |
-| 🗺️ **Interactive graph**   | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. Residual skip connections shown explicitly. |
-| 📐 **Compute stats**        | Parameters, memory (fp16/int4), and FLOPs per token - always visible, always up to date.      |
-| 🔍 **Layer inspector**      | Click any node to see what it does, how its parameters are calculated, and its exact config.  |
-| 💬 **LLM chat**             | Ask anything about the architecture in plain English. Powered by Claude or GPT-4o.            |
-| ✏️ **Architecture editing** | Tell the chat to change the model. See which nodes changed and the exact compute delta.       |
-| ↩️ **Undo history**         | Every edit is reversible. Step back through the full edit history.                            |
+|                             |                                                                                                                                                                                           |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🗺️ **Interactive graph**   | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. Residual skip connections shown explicitly.                                                 |
+| 📐 **Compute stats**        | Parameters, memory (fp16/int4), and FLOPs per token - always visible, always up to date.                                                                                                  |
+| 🔍 **Layer inspector**      | Click any node to see what it does, how its parameters are calculated, and its exact config.                                                                                              |
+| 💬 **LLM chat**             | Ask anything about the architecture in plain English. Powered by Claude or GPT-4o.                                                                                                        |
+| ✏️ **Architecture editing** | Tell the chat to change the model. See which nodes changed and the exact compute delta.                                                                                                   |
+| ↩️ **Undo history**         | Every edit is reversible. Step back through the full edit history.                                                                                                                        |
 | 🎯 **Task head switcher**   | Load BERT - then switch between MLM, Classification, NER, and QA with one click. The backbone stays, only the head updates. See the exact architecture and parameter count for each task. |
 
 
@@ -191,11 +192,13 @@ Load two models side by side. See exactly what changed - layer by layer, paramet
 
 **LLM provider roadmap**
 
-| Provider | Status |
-|---|---|
-| Anthropic Claude Sonnet | ✅ Supported |
-| OpenAI GPT-4o | ✅ Supported |
-| Ollama (local LLMs) | 🔜 Planned - run the chat entirely on your own machine, no API key needed |
+
+| Provider                | Status                                                                    |
+| ----------------------- | ------------------------------------------------------------------------- |
+| Anthropic Claude Sonnet | ✅ Supported                                                               |
+| OpenAI GPT-4o           | ✅ Supported                                                               |
+| Ollama (local LLMs)     | 🔜 Planned - run the chat entirely on your own machine, no API key needed |
+
 
 ---
 
