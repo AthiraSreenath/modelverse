@@ -153,6 +153,10 @@ class ComputeStats(BaseModel):
     memory_bf16_gb: float | None = None
     memory_int8_gb: float | None = None
     memory_int4_gb: float | None = None
+    # KV cache memory at a reference sequence length (fp16).
+    # None for encoder-only models (BERT) and SSM models (Mamba) - they do not use a KV cache.
+    kv_cache_fp16_gb: float | None = None
+    kv_cache_ref_seq_len: int | None = None
 
 
 class SourceRef(BaseModel):

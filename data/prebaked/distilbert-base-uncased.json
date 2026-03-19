@@ -151,7 +151,9 @@
     "memory_fp16_gb": 0.167,
     "memory_bf16_gb": 0.167,
     "memory_int8_gb": 0.084,
-    "memory_int4_gb": 0.042
+    "memory_int4_gb": 0.042,
+    "kv_cache_fp16_gb": null,
+    "kv_cache_ref_seq_len": null
   },
   "architectures": [
     "DistilBertForMaskedLM"

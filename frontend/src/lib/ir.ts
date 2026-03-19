@@ -53,6 +53,9 @@ export interface ComputeStats {
   memory_bf16_gb: number | null;
   memory_int8_gb: number | null;
   memory_int4_gb: number | null;
+  /** KV cache at fp16 for kv_cache_ref_seq_len tokens. Null for encoder-only and SSM models. */
+  kv_cache_fp16_gb: number | null;
+  kv_cache_ref_seq_len: number | null;
 }
 
 export interface SourceRef {

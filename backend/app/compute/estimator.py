@@ -135,6 +135,102 @@ def _count_ffn_flops(block: ArchBlock) -> int:
     return 2 * 2 * h * inter  # up + down projections
 
 
+def _estimate_kv_cache(
+    ir: ArchitectureIR, ref_seq_len: int = 2048
+) -> tuple[float | None, int | None]:
+    """
+    Estimate KV cache memory (fp16) at a reference sequence length.
+
+    Returns (kv_cache_fp16_gb, ref_seq_len), or (None, None) when not applicable.
+
+    Model-type handling:
+      - Decoder-only (GPT-2, LLaMA, Mistral, Mixtral):
+            2 (K+V) * num_layers * num_kv_heads * head_dim * seq_len * 2 bytes
+      - Encoder-decoder (T5): decoder self-attn KV + cross-attn KV (encoder output
+            cached by each decoder layer at the same reference seq_len).
+      - Encoder-only (BERT, DistilBERT): returns None - bidirectional models do not
+            use a KV cache for autoregressive generation.
+      - SSM (Mamba): returns None - uses a fixed recurrent state, not a KV cache.
+
+    GQA support (LLaMA-3, Mistral): num_kv_heads is read first from the causal
+    attention child block (most precise source), then falls back to the
+    transformer_stack params (which may store it as "num_kv_heads" or
+    "num_key_value_heads" depending on the family parser).
+    """
+    # SSM models use a fixed recurrent state - no KV cache
+    if any(b.type == BlockType.SSM for b in ir.blocks):
+        return None, None
+
+    total_kv_bytes = 0
+
+    for block in ir.blocks:
+        if block.type != BlockType.TRANSFORMER_STACK:
+            continue
+
+        p = block.params
+        is_causal = p.get("is_causal", False)
+
+        # Skip encoder-only stacks (BERT, T5 encoder) - they have no KV cache
+        if not is_causal:
+            continue
+
+        num_layers = block.repeat
+        h = p.get("hidden_size", 0)
+        num_heads = p.get("num_attention_heads", p.get("num_heads", 0))
+        if not h or not num_heads:
+            continue
+
+        # ---- Resolve num_kv_heads and head_dim --------------------------------
+        # Priority: causal attention child > transformer_stack params > default.
+        num_kv_heads = num_heads  # default: standard MHA (all kv = query heads)
+        head_dim = h // num_heads
+
+        causal_attn = next(
+            (
+                c for c in block.children
+                if c.type == BlockType.MULTI_HEAD_ATTENTION
+                and c.params.get("is_causal", True)
+            ),
+            None,
+        )
+        if causal_attn:
+            # "num_kv_heads" is only stored when GQA is used (LLaMA family)
+            num_kv_heads = causal_attn.params.get("num_kv_heads", num_kv_heads)
+            explicit_head_dim = causal_attn.params.get("head_dim", None)
+            if explicit_head_dim:
+                head_dim = explicit_head_dim  # T5 uses d_kv != h // num_heads
+        else:
+            # Fall back to transformer_stack params (both key variants)
+            num_kv_heads = p.get(
+                "num_kv_heads", p.get("num_key_value_heads", num_kv_heads)
+            )
+
+        # ---- Self-attention KV cache ------------------------------------------
+        # 2 (K+V) * num_layers * num_kv_heads * head_dim * seq_len * 2 bytes (fp16)
+        kv_bytes = 2 * num_layers * num_kv_heads * head_dim * ref_seq_len * 2
+        total_kv_bytes += kv_bytes
+
+        # ---- Cross-attention KV cache (encoder-decoder only, e.g. T5) ----------
+        # Each decoder layer also caches the encoder output as K and V for
+        # cross-attention.  Detected by a non-causal attention child inside a
+        # causal decoder stack.
+        has_cross_attn = any(
+            c.type == BlockType.MULTI_HEAD_ATTENTION
+            and not c.params.get("is_causal", True)
+            for c in block.children
+        )
+        if has_cross_attn:
+            # Cross-attn uses the same num_kv_heads and head_dim as self-attn in T5.
+            # We approximate the encoder input seq_len = ref_seq_len.
+            cross_kv_bytes = 2 * num_layers * num_kv_heads * head_dim * ref_seq_len * 2
+            total_kv_bytes += cross_kv_bytes
+
+    if total_kv_bytes == 0:
+        return None, None
+
+    return round(total_kv_bytes / (1024 ** 3), 4), ref_seq_len
+
+
 def estimate_compute(ir: ArchitectureIR) -> ComputeStats:
     """
     Compute parameter counts, FLOPs per token, and memory for an Architecture IR.
@@ -166,6 +262,8 @@ def estimate_compute(ir: ArchitectureIR) -> ComputeStats:
     def mem(params: int, dtype_bytes: float) -> float:
         return round(params * dtype_bytes / (1024 ** 3), 3)
 
+    kv_cache_gb, kv_ref_seq = _estimate_kv_cache(ir)
+
     return ComputeStats(
         params_total=total_params,
         params_embedding=params_embedding,
@@ -177,4 +275,6 @@ def estimate_compute(ir: ArchitectureIR) -> ComputeStats:
         memory_bf16_gb=mem(total_params, 2),
         memory_int8_gb=mem(total_params, 1),
         memory_int4_gb=mem(total_params, 0.5),
+        kv_cache_fp16_gb=kv_cache_gb,
+        kv_cache_ref_seq_len=kv_ref_seq,
     )

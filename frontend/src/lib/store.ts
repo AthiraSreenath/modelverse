@@ -10,6 +10,7 @@ import type {
   DiffEntry,
 } from "./ir";
 import { type TaskId, buildTaskHead, inferTask, isBaseEncoderModel } from "./taskHeads";
+import { DEFAULT_HARDWARE_ID } from "./hardware";
 
 interface ModelVerseState {
   // Current Architecture IR
@@ -44,6 +45,10 @@ interface ModelVerseState {
   // Task head switching (encoder-only models)
   activeTask: TaskId | null;
   switchTask: (task: TaskId) => void;
+
+  // Hardware selector for latency estimation
+  selectedHardwareId: string;
+  setSelectedHardwareId: (id: string) => void;
 
   // Loading states
   isResolving: boolean;
@@ -156,6 +161,9 @@ export const useStore = create<ModelVerseState>((set, get) => ({
     };
     set({ ir: newIR, activeTask: task, latestDiff: [] });
   },
+
+  selectedHardwareId: DEFAULT_HARDWARE_ID,
+  setSelectedHardwareId: (id) => set({ selectedHardwareId: id }),
 
   isResolving: false,
   setIsResolving: (v) => set({ isResolving: v }),
