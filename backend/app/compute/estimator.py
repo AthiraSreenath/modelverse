@@ -117,9 +117,22 @@ def _count_ffn_flops(block: ArchBlock) -> int:
     h = p.get("hidden_size", 768)
     inter = p.get("intermediate_size", h * 4)
     act = p.get("activation", "gelu")
+
+    if block.type == BlockType.MOE_FEED_FORWARD:
+        # Only top-k experts fire per token; each expert is a full FFN.
+        # Router itself adds 2*h*num_experts FLOPs (negligible).
+        top_k = p.get("num_experts_per_tok", p.get("top_k", 2))
+        num_experts = p.get("num_experts", 8)
+        if act in ("swiglu", "geglu", "silu"):
+            expert_flops = 3 * 2 * h * inter
+        else:
+            expert_flops = 2 * 2 * h * inter
+        router_flops = 2 * h * num_experts  # linear + softmax (negligible)
+        return expert_flops * top_k + router_flops
+
     if act in ("swiglu", "geglu", "silu"):
-        return 3 * 2 * h * inter  # 3 projections
-    return 2 * 2 * h * inter  # 2 projections
+        return 3 * 2 * h * inter  # 3 projections (gate, up, down)
+    return 2 * 2 * h * inter  # up + down projections
 
 
 def estimate_compute(ir: ArchitectureIR) -> ComputeStats:
