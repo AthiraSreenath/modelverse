@@ -84,8 +84,15 @@ _ANTHROPIC_TOOLS = [
         "description": (
             "Apply an architectural edit to the current model and return the modified IR, "
             "a diff, and compute delta. Call this when the user asks to change the architecture. "
-            "Supported ops: set_repeat, set_param, add_block, remove_block, replace_block. "
-            "Use block IDs exactly as they appear in the architecture_ir (e.g. 'encoder', 'embeddings', 'pooler')."
+            "Supported ops: set_repeat, set_param, add_block, remove_block, replace_block.\n\n"
+            "Valid block types: embedding, transformer_stack, multi_head_attention, feed_forward, "
+            "moe_feed_forward, layer_norm, linear, conv1d, ssm, rnn, pooling, dropout, activation.\n\n"
+            "Key params per type:\n"
+            "  feed_forward: {hidden_size, intermediate_size, activation}\n"
+            "  moe_feed_forward: {hidden_size, intermediate_size, num_experts, num_experts_per_tok, activation}\n"
+            "  multi_head_attention: {hidden_size, num_heads, head_dim, num_kv_heads, attention_type, is_causal}\n"
+            "  layer_norm: {normalized_shape, norm_type}\n\n"
+            "Use block IDs exactly as they appear in the architecture_ir."
         ),
         "input_schema": {
             "type": "object",
@@ -93,10 +100,18 @@ _ANTHROPIC_TOOLS = [
                 "edit_spec": {
                     "type": "object",
                     "description": (
-                        "Edit specification. op is one of: set_repeat, set_param, add_block, remove_block, replace_block. "
-                        'Examples: {"op":"set_repeat","target":"encoder","value":6}, '
-                        '{"op":"set_param","target":"encoder","key":"num_attention_heads","value":8}, '
-                        '{"op":"remove_block","target":"pooler"}'
+                        "Edit specification. Required field: op. "
+                        "op='set_repeat': change layer count — {op, target, value}. "
+                        "op='set_param': change one param — {op, target, key, value}. "
+                        "op='remove_block': delete a block — {op, target}. "
+                        "op='replace_block': swap a block for a new one (use for type changes like FFN→MoE) — "
+                        "{op, target, block: {id, label, type, params, repeat}}. "
+                        "op='add_block': insert a new block — {op, block: {...}, after: <existing_block_id>}. "
+                        "Examples:\n"
+                        '  {"op":"set_repeat","target":"encoder","value":6}\n'
+                        '  {"op":"set_param","target":"self_attn","key":"num_heads","value":8}\n'
+                        '  {"op":"remove_block","target":"pooler"}\n'
+                        '  {"op":"replace_block","target":"ffn","block":{"id":"ffn","label":"MoE FFN","type":"moe_feed_forward","params":{"hidden_size":768,"intermediate_size":3072,"num_experts":8,"num_experts_per_tok":2,"activation":"gelu"},"repeat":1}}'
                     ),
                 },
             },
@@ -136,6 +151,24 @@ _OPENAI_TOOLS = [
 
 def _build_system_prompt(ir: ArchitectureIR) -> str:
     ir_json = ir.model_dump_json(indent=2)
+
+    # Build a flat list of block IDs for quick LLM reference
+    def collect_blocks(blocks: list) -> list:
+        result = []
+        for b in blocks:
+            result.append(b)
+            result.extend(collect_blocks(b.children))
+        return result
+
+    all_blocks = collect_blocks(ir.blocks)
+    block_id_list = ", ".join(f'"{b.id}"' for b in all_blocks)
+
+    # Find the transformer stack block for a concrete example
+    stack_block = next(
+        (b for b in all_blocks if b.type == "transformer_stack"), None
+    )
+    example_id = stack_block.id if stack_block else (all_blocks[0].id if all_blocks else "encoder")
+
     return f"""You are ModelVerse, an expert ML architecture assistant.
 
 The user is currently viewing this model architecture:
@@ -143,20 +176,37 @@ The user is currently viewing this model architecture:
 {ir_json}
 </architecture_ir>
 
+Available block IDs: {block_id_list}
+
 You can:
 - Answer questions about any part of this architecture
 - Explain what layers do and why they exist
-- Suggest and apply architectural edits
-- Estimate the compute impact of changes
-- Look up other models for comparison
+- Suggest and apply architectural edits using apply_edit
+- Estimate the compute impact of changes using estimate_compute
+- Look up other models for comparison using search_huggingface
+
+IMPORTANT — when calling apply_edit:
+- Use ONLY block IDs listed above. Never invent IDs.
+- To change the number of layers/blocks, use op="set_repeat" with the transformer_stack block ID.
+- To convert a feed-forward block to MoE, use op="replace_block" with type="moe_feed_forward".
+  Example for this model: {{"op":"replace_block","target":"ffn","block":{{"id":"ffn","label":"MoE FFN","type":"moe_feed_forward","params":{{"hidden_size":768,"intermediate_size":3072,"num_experts":8,"num_experts_per_tok":2,"activation":"gelu"}},"repeat":1}}}}
+- To convert GQA/MQA attention, use op="replace_block" targeting the attention block with updated num_kv_heads.
+- Concrete set_repeat example for this model: {{"op": "set_repeat", "target": "{example_id}", "value": 6}}
+- Call apply_edit exactly ONCE per user request with a single edit_spec dict.
+- If apply_edit returns an error with "available_block_ids", use one of those IDs and retry immediately.
+
+Valid block types and their key params:
+  feed_forward       → hidden_size, intermediate_size, activation
+  moe_feed_forward   → hidden_size, intermediate_size, num_experts, num_experts_per_tok, activation
+  multi_head_attention → hidden_size, num_heads, head_dim, num_kv_heads, attention_type, is_causal
+  layer_norm         → normalized_shape, norm_type ("layer_norm" or "rms_norm")
+  linear             → in_features, out_features, bias
 
 Guidelines:
-- Be concise and precise. Cite parameter counts and dimensions when relevant.
-- When asked about compute impact, call estimate_compute — don't guess.
-- When asked to edit the architecture, call apply_edit with the appropriate spec.
-- When showing formula breakdowns, use the actual numbers from the IR.
-- If source_confidence != "exact", note any uncertainty.
-- Never make up architectural details. Use the IR or call a tool to verify.
+- Be concise. Cite parameter counts and dimensions when relevant.
+- When asked about compute impact, call estimate_compute — don't calculate manually.
+- When asked to edit the architecture, always call apply_edit — don't just describe the edit in text.
+- After a successful apply_edit, summarise what changed using the compute_delta in the tool result.
 """
 
 
