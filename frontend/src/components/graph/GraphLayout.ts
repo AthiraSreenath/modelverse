@@ -8,10 +8,10 @@ import type { ArchBlock, ArchitectureIR, DiffEntry } from "@/lib/ir";
 import type { BlockNodeData } from "./nodes/BlockNode";
 import type { RepeatLabelData } from "./nodes/RepeatLabelNode";
 
-const NODE_WIDTH = 200;
+const NODE_WIDTH = 240;
 const NODE_HEIGHT = 64;
 const VERT_GAP = 24;
-const CHILD_X_OFFSET = 240;
+const CHILD_X_OFFSET = 280;   // keeps a 40 px gap for residual skip C-curves
 const CHILD_VERT_GAP = 12;
 
 /** Get block IDs that appear in the diff */

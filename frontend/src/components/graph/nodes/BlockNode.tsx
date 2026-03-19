@@ -82,7 +82,7 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
     <div
       onClick={handleSelect}
       className={cn(
-        "relative rounded-lg border px-3 py-2 cursor-pointer transition-all min-w-[180px]",
+        "relative rounded-lg border px-3 py-2 cursor-pointer transition-all min-w-[220px]",
         colorClass,
         selected && "ring-2 ring-white/50",
         isDiffed && "ring-2 ring-yellow-400/80"
@@ -99,7 +99,7 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
-            <span className="text-sm font-medium text-white truncate">
+            <span className="text-sm font-medium text-white">
               {block.label}
             </span>
             {isStack && block.repeat > 1 && (
