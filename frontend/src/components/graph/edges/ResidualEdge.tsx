@@ -6,15 +6,17 @@ import type { EdgeProps } from "@xyflow/react";
 /**
  * Draws residual (skip) connections as explicit L-shaped or U-shaped paths.
  *
- *  Case A – source LEFT of target (encoder block → first Add):
+ *  Case A – source LEFT of target (parent trunk → first Add, Post-LN style):
  *    L-shape: │ down to Add(1) y, then → right.
- *    Vertical lives in the 40 px gap at sourceX (= encoder right edge, x≈240).
- *    Represents: Add1 = x + Attn(x)
+ *    Represents: Add1 = x + Attn(x)  (BERT) or Add1 = x + Attn(LN(x))  (Pre-LN from trunk)
  *
- *  Case B – source same x as target (LayerNorm → second Add):
+ *  Case B – source same x as target (e.g. LayerNorm → second Add in Post-LN):
  *    Tight U-shape: ← 16 px left, │ down to Add(2) y, → right.
- *    Vertical lives at targetX−16 (x≈264), clearly offset from Case A.
- *    Represents: Add2 = y + FFN(y)  where y = LayerNorm output
+ *    Represents: Add2 = y + FFN(y)  where y = LayerNorm output (BERT)
+ *
+ *  Case C – source-bottom (prior Add → next Add, Pre-LN / T5):
+ *    │ down from bottom of upper Add, → into lower Add.
+ *    Represents: Add2 = y + FFN(LN(y))  where y = output of first Add (not raw trunk x)
  *
  * A filled dot is drawn at the source point for both cases so the eye
  * immediately sees where each residual taps off from.
@@ -25,15 +27,26 @@ function ResidualEdge({
   targetX,
   targetY,
   label,
+  data,
 }: EdgeProps) {
   const STROKE = "#4ade80";
   const DASH = "5 3";
+  const fromPriorAddBottom = Boolean(
+    data &&
+      typeof data === "object" &&
+      (data as { residualFromPriorAddBottom?: boolean }).residualFromPriorAddBottom
+  );
 
   let path: string;
   let labelX: number;
   let labelY: number;
 
-  if (sourceX < targetX - 5) {
+  if (fromPriorAddBottom) {
+    // Pre-LN / T5: residual merges from the *output* of the previous Add (bottom handle).
+    path = `M ${sourceX},${sourceY} V ${targetY} H ${targetX}`;
+    labelX = sourceX + (targetX - sourceX) / 2;
+    labelY = targetY - 10;
+  } else if (sourceX < targetX - 5) {
     // ── Case A: encoder block (x) → first Add ─────────────────────────────
     // L-shape: ↓ down to Add(1) level, → right into Add(1).
     // Source dot sits at the encoder's right edge - the layer-entry tap point.

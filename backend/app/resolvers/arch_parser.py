@@ -105,6 +105,8 @@ def _parse_bert_family(config: dict, model_id: str) -> ArchitectureIR:
             "intermediate_size": intermediate,
             "attention_type": "multi_head",
             "is_causal": False,
+            # Graph: Post-LN (sublayer -> Add -> LN). Second residual taps LN output.
+            "residual_layout": "post_ln",
         },
         repeat=num_layers,
         children=children,
@@ -166,6 +168,8 @@ def _parse_gpt2_family(config: dict, model_id: str) -> ArchitectureIR:
             "intermediate_size": intermediate,
             "attention_type": "multi_head",
             "is_causal": True,
+            # Graph: Pre-LN (LN -> sublayer -> Add). Second residual taps first Add output.
+            "residual_layout": "pre_ln",
         },
         repeat=num_layers,
         children=children,
@@ -232,7 +236,8 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
     ]
     encoder = ArchBlock(id="encoder", label="T5 Encoder", type=BlockType.TRANSFORMER_STACK,
                         params={"hidden_size": d_model, "num_hidden_layers": num_encoder_layers,
-                                "num_attention_heads": num_heads, "is_causal": False},
+                                "num_attention_heads": num_heads, "is_causal": False,
+                                "residual_layout": "post_ln"},
                         repeat=num_encoder_layers, children=enc_children,
                         param_count=_stack_param_count(enc_children, num_encoder_layers))
 
@@ -258,7 +263,9 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
     ]
     decoder = ArchBlock(id="decoder", label="T5 Decoder", type=BlockType.TRANSFORMER_STACK,
                         params={"hidden_size": d_model, "num_hidden_layers": num_decoder_layers,
-                                "num_attention_heads": num_heads, "is_causal": True},
+                                "num_attention_heads": num_heads, "is_causal": True,
+                                # Three adds per layer; FFN residual must tap cross-attn Add, not pre-FFN LN.
+                                "residual_layout": "t5_decoder"},
                         repeat=num_decoder_layers, children=dec_children,
                         param_count=_stack_param_count(dec_children, num_decoder_layers))
 
@@ -486,6 +493,8 @@ def _parse_llama_family(config: dict, model_id: str) -> ArchitectureIR:
             "intermediate_size": intermediate,
             "attention_type": attn_type.value,
             "is_causal": True,
+            # Graph: Pre-LN (RMSNorm -> sublayer -> Add). Second residual taps first Add output.
+            "residual_layout": "pre_ln",
         },
         repeat=num_layers,
         children=children,

@@ -94,14 +94,20 @@ export function buildGraphElements(
       const childrenStartY = y;
 
       // ── Residual skip-connection tracking ──────────────────────────────────
-      // Detect Pre-LN (LN before sublayer, e.g. LLaMA/GPT-2) vs Post-LN (LN
-      // after Add, e.g. BERT) so we can route the "x" skip path correctly.
-      //   Post-LN: x → Attn → Add ← x        then LN; anchor updates at LN
-      //   Pre-LN:  x → LN → Attn → Add ← x   then next stack; anchor stays at Add
-      const isPreLN = block.children[0]?.type === "layer_norm";
-      // residualAnchor: node-id that holds the current "clean x" representation
+      // residual_layout comes from the backend (arch_parser) so we never confuse
+      // BERT Post-LN with LLaMA/Mistral Pre-LN or T5's 3-add decoder.
+      //   post_ln:      sublayer → Add → LN  (BERT). Second skip taps LN output.
+      //   pre_ln:       LN → sublayer → Add  (GPT-2, LLaMA, Mistral). Second skip
+      //                 taps first Add output (not block trunk, not pre-FFN LN).
+      //   t5_decoder:   self → add → cross → add → LN → FFN → add. LNs do not
+      //                 advance the anchor; FFN skip taps cross-attn Add output.
+      const rawLayout = block.params?.residual_layout as string | undefined;
+      const residualLayout =
+        rawLayout ||
+        (block.children[0]?.type === "layer_norm" ? "pre_ln" : "post_ln");
+      const anchorAfterLayerNorm = residualLayout === "post_ln";
+      // residualAnchor: tensor that the next residual addition branches from
       let residualAnchor: string = block.id;
-      // pendingSkipSrc: saved anchor at the moment a sublayer begins
       let pendingSkipSrc: string = block.id;
       // ───────────────────────────────────────────────────────────────────────
 
@@ -152,35 +158,39 @@ export function buildGraphElements(
           // skip path originates from here (before this sublayer).
           pendingSkipSrc = residualAnchor;
         } else if (ct === "add") {
-          // Draw the dashed "x" skip edge bypassing the preceding sublayer.
-          // Route depends on whether the source is the parent block or a sibling:
-          //   Parent → Add : exit right of parent, enter left of Add
-          //                  (compact C-curve in the 40px gap between columns)
-          //   Sibling → Add: exit left of sibling, enter left of Add
-          //                  (U-curve to the left of the child column)
+          // Draw the dashed skip bypassing the preceding sublayer.
           const isParentSrc = pendingSkipSrc === block.id;
+          // Pre-LN / T5: second+ residual from a prior Add should leave the *bottom*
+          // of that Add (merged sublayer output), not the left edge (reads as trunk).
+          const isFromPriorAdd =
+            !isParentSrc && pendingSkipSrc.includes("__add_");
+          // Any stack where a residual merges from a *prior Add* (not Post-LN LN) should
+          // leave the bottom of that Add so it reads as the merged output, not the trunk.
+          const useBottomSource =
+            isFromPriorAdd &&
+            (residualLayout === "pre_ln" || residualLayout === "t5_decoder");
+          // x = sub-stack input (parent trunk). y = hidden after prior Add / LN (layout-specific).
+          const skipLabel = isParentSrc ? "x" : "y";
           edges.push({
             id: `skip::${pendingSkipSrc}::${childNodeId}`,
             source: pendingSkipSrc,
             target: childNodeId,
-            // Case A (parent → Add): exit right of parent, enter left of Add →
-            //   ResidualEdge draws an L-shape (│ down then → right)
-            // Case B (sibling → Add): exit left of sibling, enter left of Add →
-            //   ResidualEdge draws a U-shape (← left, ↓ down, → right)
-            sourceHandle: isParentSrc ? "source-right" : "source-left",
+            sourceHandle: isParentSrc
+              ? "source-right"
+              : useBottomSource
+                ? "source-bottom"
+                : "source-left",
             targetHandle: "target-left",
             type: "residual",
-            label: "x",
+            label: skipLabel,
+            data: { residualFromPriorAddBottom: useBottomSource },
           });
-          // The Add output is now the "clean x" for the next skip.
           residualAnchor = childNodeId;
-        } else if (ct === "layer_norm" && !isPreLN) {
-          // Post-LN: the LN output IS the representation carried into the next
-          // sublayer, so update the residual anchor here.
+        } else if (ct === "layer_norm" && anchorAfterLayerNorm) {
+          // Post-LN (BERT): LN output feeds the next sublayer; second residual taps here.
           residualAnchor = childNodeId;
         }
-        // Pre-LN LayerNorm: residualAnchor deliberately not updated - the bypass
-        // wraps the LN + sublayer together, sourcing from the previous Add/entry.
+        // pre_ln / t5_decoder: never move anchor on LayerNorm — residual stays on Add / trunk.
         // ────────────────────────────────────────────────────────────────────
 
         childPrevId = childNodeId;

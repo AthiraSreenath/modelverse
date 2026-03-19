@@ -34,7 +34,8 @@
         "num_attention_heads": 12,
         "intermediate_size": 3072,
         "attention_type": "multi_head",
-        "is_causal": false
+        "is_causal": false,
+        "residual_layout": "post_ln"
       },
       "repeat": 6,
       "children": [

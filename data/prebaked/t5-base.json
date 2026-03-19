@@ -31,7 +31,8 @@
         "hidden_size": 768,
         "num_hidden_layers": 12,
         "num_attention_heads": 12,
-        "is_causal": false
+        "is_causal": false,
+        "residual_layout": "post_ln"
       },
       "repeat": 12,
       "children": [
@@ -130,7 +131,8 @@
         "hidden_size": 768,
         "num_hidden_layers": 12,
         "num_attention_heads": 12,
-        "is_causal": true
+        "is_causal": true,
+        "residual_layout": "t5_decoder"
       },
       "repeat": 12,
       "children": [

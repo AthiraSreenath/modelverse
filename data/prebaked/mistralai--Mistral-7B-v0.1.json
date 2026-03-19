@@ -35,7 +35,8 @@
         "num_key_value_heads": 8,
         "intermediate_size": 14336,
         "attention_type": "grouped_query",
-        "is_causal": true
+        "is_causal": true,
+        "residual_layout": "pre_ln"
       },
       "repeat": 32,
       "children": [
