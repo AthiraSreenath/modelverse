@@ -31,12 +31,13 @@ It's aimed at ML engineers who want to quickly understand a model before using i
 
 |                             |                                                                                               |
 | --------------------------- | --------------------------------------------------------------------------------------------- |
-| 🗺️ **Interactive graph**   | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. |
+| 🗺️ **Interactive graph**   | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. Residual skip connections shown explicitly. |
 | 📐 **Compute stats**        | Parameters, memory (fp16/int4), and FLOPs per token - always visible, always up to date.      |
 | 🔍 **Layer inspector**      | Click any node to see what it does, how its parameters are calculated, and its exact config.  |
 | 💬 **LLM chat**             | Ask anything about the architecture in plain English. Powered by Claude or GPT-4o.            |
 | ✏️ **Architecture editing** | Tell the chat to change the model. See which nodes changed and the exact compute delta.       |
 | ↩️ **Undo history**         | Every edit is reversible. Step back through the full edit history.                            |
+| 🎯 **Task head switcher**   | Load BERT - then switch between MLM, Classification, NER, and QA with one click. The backbone stays, only the head updates. See the exact architecture and parameter count for each task. |
 
 
 ---
@@ -70,6 +71,31 @@ You type:  bert-base-uncased
    └─────────────────────┘   └────────────────────────┘
          detail panel                 chat panel
 ```
+
+---
+
+## Task head switcher
+
+Load any BERT-like model and a **Fine-tune task** selector appears in the compute bar. Switch tasks to see how the head changes while the backbone stays identical:
+
+```
+backbone (unchanged)          head (swaps per task)
+-------------------------------------------------
+                    MLM    →  MLM Head
+                               Linear(768 → 30 522)
+
+Embeddings          Class  →  CLS Extract
+    +                          Pooler (CLS projection)
+Transformer                    Classification Head
+Encoder x12
+                    NER    →  Token Classification Head
+                               Linear(768 → 9)  per token
+
+                    QA     →  Span Prediction Head
+                               Linear(768 → 2)  start / end logits
+```
+
+Compute stats (params, memory, FLOPs) update instantly with each switch. Click any head block to read a full explanation of what it does and how the math works.
 
 ---
 

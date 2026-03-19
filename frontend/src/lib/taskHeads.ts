@@ -107,7 +107,7 @@ export function buildTaskHead(
         {
           ...base,
           id: "classifier",
-          label: "Classifier Head",
+          label: "Classification Head",
           type: "linear",
           params: { in_features: h, out_features: 2 },
           param_count: h * 2 + 2,
@@ -124,7 +124,7 @@ export function buildTaskHead(
         {
           ...base,
           id: "ner_head",
-          label: "Token Classifier",
+          label: "Token Classification Head",
           type: "linear",
           params: { in_features: h, out_features: numLabels },
           param_count: h * numLabels + numLabels,
@@ -141,7 +141,7 @@ export function buildTaskHead(
         {
           ...base,
           id: "qa_head",
-          label: "Span Predictor",
+          label: "Span Prediction Head (QA)",
           type: "linear",
           params: { in_features: h, out_features: 2 },
           param_count: h * 2 + 2,
