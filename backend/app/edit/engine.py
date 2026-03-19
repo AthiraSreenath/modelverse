@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 def _build_moe_children(block: ArchBlock) -> list[ArchBlock]:
     """Generate the standard internal sub-blocks for a moe_feed_forward block.
 
-    These are display-only children that reflect the real MoE forward pass:
-      Router → top-k selection → parallel expert FFNs → weighted combine.
+    Reflects the real MoE forward pass:
+      Router → Top-k Select → (parallel) Expert FFNs → Weighted Combine → (+residual, outside)
     """
     p = block.params
     h = p.get("hidden_size", 768)
@@ -43,20 +43,35 @@ def _build_moe_children(block: ArchBlock) -> list[ArchBlock]:
             type=BlockType.LINEAR,
             params={"in_features": h, "out_features": num_experts, "bias": False},
             notes=(
-                f"Gating network (Linear {h}→{num_experts} + softmax). "
-                f"Scores every expert and selects the top-{top_k} for this token."
+                f"First step inside MoE. Linear({h} → {num_experts}) + softmax. "
+                f"Produces a score for every one of the {num_experts} experts. "
+                f"No expert computation happens here — only routing decisions."
+            ),
+        ),
+        ArchBlock(
+            id=f"{bid}_topk",
+            label=f"Top-{top_k} Select",
+            type=BlockType.UNKNOWN,
+            params={},
+            notes=(
+                f"Picks the {top_k} highest-scored experts from the router output. "
+                f"The remaining {num_experts - top_k} experts are skipped entirely for this token — "
+                f"zero compute, zero memory access. This is the sparse activation that makes MoE efficient."
             ),
         ),
         ArchBlock(
             id=f"{bid}_experts",
-            label=f"Expert FFN",
+            label=f"Expert FFN ×{num_experts}",
             type=BlockType.FEED_FORWARD,
             params={"hidden_size": h, "intermediate_size": inter, "activation": act},
             repeat=num_experts,
             notes=(
-                f"Pool of {num_experts} independent FFNs. "
-                f"Only {top_k} activate per token — chosen by the router. "
-                f"All {num_experts} sets of weights are stored; only {top_k} compute."
+                f"{num_experts} independent FFNs run in parallel (conceptually). "
+                f"Only the top-{top_k} selected experts actually compute for this token. "
+                f"All {num_experts} weight matrices are stored in memory; "
+                f"only {top_k} are multiplied. "
+                f"Parameters per expert: 2 × {h} × {inter} = {2 * h * inter:,}. "
+                f"Active params per token: {top_k} × {2 * h * inter:,} = {top_k * 2 * h * inter:,}."
             ),
         ),
         ArchBlock(
@@ -65,8 +80,11 @@ def _build_moe_children(block: ArchBlock) -> list[ArchBlock]:
             type=BlockType.UNKNOWN,
             params={},
             notes=(
-                f"output = Σ softmax_weight_i × expert_i(x)  for i in top-{top_k}. "
-                "Weights come from the router softmax over selected experts."
+                f"output = Σ gate_i × expert_i(x)  for i in top-{top_k} selected experts. "
+                f"gate_i = softmax(router_score_i) renormalised over selected experts only. "
+                f"This output is then added back to the block input via a residual connection "
+                f"(x + MoE_output) before the following LayerNorm — the skip connection is "
+                f"part of the surrounding transformer block, not inside MoE."
             ),
         ),
     ]
