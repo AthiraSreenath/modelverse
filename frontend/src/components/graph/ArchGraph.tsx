@@ -13,6 +13,7 @@ import {
   useEdgesState,
   BackgroundVariant,
   type NodeTypes,
+  type EdgeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo } from "react";
@@ -20,10 +21,15 @@ import { useStore } from "@/lib/store";
 import { buildGraphElements } from "./GraphLayout";
 import BlockNode from "./nodes/BlockNode";
 import RepeatLabelNode from "./nodes/RepeatLabelNode";
+import ResidualEdge from "./edges/ResidualEdge";
 
 const NODE_TYPES: NodeTypes = {
   blockNode: BlockNode as NodeTypes[string],
   repeatLabel: RepeatLabelNode as NodeTypes[string],
+};
+
+const EDGE_TYPES: EdgeTypes = {
+  residual: ResidualEdge as EdgeTypes[string],
 };
 
 export default function ArchGraph() {
@@ -58,6 +64,7 @@ export default function ArchGraph() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}

@@ -163,17 +163,14 @@ export function buildGraphElements(
             id: `skip::${pendingSkipSrc}::${childNodeId}`,
             source: pendingSkipSrc,
             target: childNodeId,
+            // Case A (parent → Add): exit right of parent, enter left of Add →
+            //   ResidualEdge draws an L-shape (│ down then → right)
+            // Case B (sibling → Add): exit left of sibling, enter left of Add →
+            //   ResidualEdge draws a U-shape (← left, ↓ down, → right)
             sourceHandle: isParentSrc ? "source-right" : "source-left",
             targetHandle: "target-left",
-            type: "smoothstep",
-            style: {
-              stroke: "#4ade80",
-              strokeWidth: 1.5,
-              strokeDasharray: "5 3",
-            },
+            type: "residual",
             label: "x",
-            labelStyle: { fill: "#4ade80", fontSize: 9 },
-            labelBgStyle: { fill: "transparent" },
           });
           // The Add output is now the "clean x" for the next skip.
           residualAnchor = childNodeId;
