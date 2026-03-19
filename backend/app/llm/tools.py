@@ -79,9 +79,17 @@ def tool_estimate_compute(ir: dict) -> dict:
     try:
         ir_obj = ArchitectureIR.model_validate(ir)
         stats = estimate_compute(ir_obj)
-        return stats.model_dump()
+        return stats.model_dump(mode="json")
     except Exception as e:
         return {"error": str(e)}
+
+
+def _collect_block_ids(blocks: list) -> list[str]:
+    ids = []
+    for b in blocks:
+        ids.append(b.id)
+        ids.extend(_collect_block_ids(b.children))
+    return ids
 
 
 def tool_apply_edit(ir: dict, edit_spec: dict) -> dict:
@@ -90,7 +98,19 @@ def tool_apply_edit(ir: dict, edit_spec: dict) -> dict:
         ir_obj = ArchitectureIR.model_validate(ir)
         spec = EditSpec.model_validate(edit_spec)
         result = _apply_edit(ir_obj, spec)
-        return result.model_dump()
+        return result.model_dump(mode="json")
+    except ValueError as e:
+        # Help the LLM correct itself by listing available block IDs
+        try:
+            ir_obj = ArchitectureIR.model_validate(ir)
+            available = _collect_block_ids(ir_obj.blocks)
+            return {
+                "error": str(e),
+                "available_block_ids": available,
+                "hint": f"Use one of the available block IDs: {available}",
+            }
+        except Exception:
+            return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
 

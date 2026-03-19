@@ -115,12 +115,17 @@ export default function ChatPanel() {
                 new_ir?: unknown;
                 diff?: unknown;
                 compute_delta?: unknown;
+                error?: string;
               };
               if (result.new_ir) {
+                // Successful edit — update the graph immediately
                 editResult = result as import("@/lib/ir").EditResult;
-                pushIRHistory(result.new_ir as import("@/lib/ir").ArchitectureIR);
-                setLatestDiff((result.diff ?? []) as import("@/lib/ir").DiffEntry[]);
+                const newIR = result.new_ir as import("@/lib/ir").ArchitectureIR;
+                const diff = (result.diff ?? []) as import("@/lib/ir").DiffEntry[];
+                pushIRHistory(newIR);
+                setLatestDiff(diff);
               }
+              // If result.error exists, the LLM will see it and self-correct
             }
           } else if (event.type === "error") {
             setError(event.error ?? "Something went wrong");
