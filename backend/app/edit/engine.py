@@ -11,6 +11,7 @@ from typing import Any
 from ..models.ir import (
     ArchBlock,
     ArchitectureIR,
+    BlockType,
     ComputeDelta,
     DiffEntry,
     EditOp,
@@ -20,6 +21,55 @@ from ..models.ir import (
 from ..compute.estimator import estimate_compute
 
 logger = logging.getLogger(__name__)
+
+
+def _build_moe_children(block: ArchBlock) -> list[ArchBlock]:
+    """Generate the standard internal sub-blocks for a moe_feed_forward block.
+
+    These are display-only children that reflect the real MoE forward pass:
+      Router → top-k selection → parallel expert FFNs → weighted combine.
+    """
+    p = block.params
+    h = p.get("hidden_size", 768)
+    num_experts = p.get("num_experts", 8)
+    top_k = p.get("num_experts_per_tok", p.get("top_k", 2))
+    inter = p.get("intermediate_size", h * 4)
+    act = p.get("activation", "gelu")
+    bid = block.id
+    return [
+        ArchBlock(
+            id=f"{bid}_router",
+            label="Router",
+            type=BlockType.LINEAR,
+            params={"in_features": h, "out_features": num_experts, "bias": False},
+            notes=(
+                f"Gating network (Linear {h}→{num_experts} + softmax). "
+                f"Scores every expert and selects the top-{top_k} for this token."
+            ),
+        ),
+        ArchBlock(
+            id=f"{bid}_experts",
+            label=f"Expert FFN",
+            type=BlockType.FEED_FORWARD,
+            params={"hidden_size": h, "intermediate_size": inter, "activation": act},
+            repeat=num_experts,
+            notes=(
+                f"Pool of {num_experts} independent FFNs. "
+                f"Only {top_k} activate per token — chosen by the router. "
+                f"All {num_experts} sets of weights are stored; only {top_k} compute."
+            ),
+        ),
+        ArchBlock(
+            id=f"{bid}_combine",
+            label="Weighted Combine",
+            type=BlockType.UNKNOWN,
+            params={},
+            notes=(
+                f"output = Σ softmax_weight_i × expert_i(x)  for i in top-{top_k}. "
+                "Weights come from the router softmax over selected experts."
+            ),
+        ),
+    ]
 
 
 def _find_block(blocks: list[ArchBlock], target_id: str) -> tuple[list[ArchBlock], int] | None:
@@ -71,6 +121,8 @@ def apply_edit(ir: ArchitectureIR, spec: EditSpec) -> EditResult:
 
         case EditOp.ADD_BLOCK:
             new_block = ArchBlock.model_validate(spec.block)
+            if new_block.type == BlockType.MOE_FEED_FORWARD and not new_block.children:
+                new_block.children = _build_moe_children(new_block)
             if spec.after:
                 result = _find_block(new_ir.blocks, spec.after)
                 if result:
@@ -89,6 +141,8 @@ def apply_edit(ir: ArchitectureIR, spec: EditSpec) -> EditResult:
             parent_list, idx = result
             old_block = parent_list[idx]
             new_block = ArchBlock.model_validate(spec.block)
+            if new_block.type == BlockType.MOE_FEED_FORWARD and not new_block.children:
+                new_block.children = _build_moe_children(new_block)
             parent_list[idx] = new_block
             diff.append(DiffEntry(path=spec.target, old=old_block.model_dump(), new=new_block.model_dump()))
 
