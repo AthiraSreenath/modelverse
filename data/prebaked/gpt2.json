@@ -41,7 +41,10 @@
           "id": "ln_1",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 1536
@@ -65,7 +68,10 @@
           "id": "ln_2",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 1536
@@ -90,22 +96,25 @@
       "id": "ln_f",
       "label": "Final LayerNorm",
       "type": "layer_norm",
-      "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+      "params": {
+        "normalized_shape": 768,
+        "norm_type": "layer_norm"
+      },
       "repeat": 1,
       "children": [],
       "param_count": 1536
     }
   ],
   "compute": {
-    "params_total": 124439808,
+    "params_total": 123656448,
     "params_embedding": 38597376,
-    "params_encoder": 85054464,
+    "params_encoder": 85057536,
     "params_head": 1536,
-    "flops_per_token": 21400000000,
-    "memory_fp32_gb": 0.475,
-    "memory_fp16_gb": 0.238,
-    "memory_bf16_gb": 0.238,
-    "memory_int8_gb": 0.119,
-    "memory_int4_gb": 0.059
+    "flops_per_token": 179306496,
+    "memory_fp32_gb": 0.461,
+    "memory_fp16_gb": 0.23,
+    "memory_bf16_gb": 0.23,
+    "memory_int8_gb": 0.115,
+    "memory_int4_gb": 0.058
   }
 }

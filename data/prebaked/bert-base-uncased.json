@@ -57,7 +57,10 @@
           "id": "attn_layernorm",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 1536
@@ -79,7 +82,10 @@
           "id": "ffn_layernorm",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 1536
@@ -91,22 +97,26 @@
       "id": "pooler",
       "label": "Pooler",
       "type": "linear",
-      "params": { "in_features": 768, "out_features": 768, "bias": true },
+      "params": {
+        "in_features": 768,
+        "out_features": 768,
+        "bias": true
+      },
       "repeat": 1,
       "children": [],
       "param_count": 590592
     }
   ],
   "compute": {
-    "params_total": 109482240,
+    "params_total": 109485312,
     "params_embedding": 23837184,
-    "params_encoder": 85054464,
+    "params_encoder": 85057536,
     "params_head": 590592,
-    "flops_per_token": 22400000000,
-    "memory_fp32_gb": 0.418,
-    "memory_fp16_gb": 0.209,
-    "memory_bf16_gb": 0.209,
-    "memory_int8_gb": 0.105,
-    "memory_int4_gb": 0.052
+    "flops_per_token": 179306496,
+    "memory_fp32_gb": 0.408,
+    "memory_fp16_gb": 0.204,
+    "memory_bf16_gb": 0.204,
+    "memory_int8_gb": 0.102,
+    "memory_int4_gb": 0.051
   }
 }

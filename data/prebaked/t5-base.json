@@ -53,7 +53,10 @@
           "id": "layer_norm",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 768
@@ -62,7 +65,11 @@
           "id": "ffn",
           "label": "FFN",
           "type": "feed_forward",
-          "params": { "hidden_size": 768, "intermediate_size": 3072, "activation": "relu" },
+          "params": {
+            "hidden_size": 768,
+            "intermediate_size": 3072,
+            "activation": "relu"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 4718592
@@ -71,7 +78,10 @@
           "id": "ffn_norm",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 768
@@ -126,7 +136,10 @@
           "id": "layer_norm",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 768
@@ -135,7 +148,11 @@
           "id": "ffn",
           "label": "FFN",
           "type": "feed_forward",
-          "params": { "hidden_size": 768, "intermediate_size": 3072, "activation": "relu" },
+          "params": {
+            "hidden_size": 768,
+            "intermediate_size": 3072,
+            "activation": "relu"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 4718592
@@ -144,7 +161,10 @@
           "id": "ffn_norm",
           "label": "LayerNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 768, "norm_type": "layer_norm" },
+          "params": {
+            "normalized_shape": 768,
+            "norm_type": "layer_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 768
@@ -156,22 +176,26 @@
       "id": "lm_head",
       "label": "LM Head",
       "type": "linear",
-      "params": { "in_features": 768, "out_features": 32128, "bias": false },
+      "params": {
+        "in_features": 768,
+        "out_features": 32128,
+        "bias": false
+      },
       "repeat": 1,
       "children": [],
       "param_count": 24674304
     }
   ],
   "compute": {
-    "params_total": 248369664,
+    "params_total": 247566336,
     "params_embedding": 24674304,
-    "params_encoder": 85641216,
-    "params_head": 113381376,
-    "flops_per_token": null,
-    "memory_fp32_gb": 0.948,
-    "memory_fp16_gb": 0.474,
-    "memory_bf16_gb": 0.474,
-    "memory_int8_gb": 0.237,
-    "memory_int4_gb": 0.119
+    "params_encoder": 198217728,
+    "params_head": 24674304,
+    "flops_per_token": 424673280,
+    "memory_fp32_gb": 0.922,
+    "memory_fp16_gb": 0.461,
+    "memory_bf16_gb": 0.461,
+    "memory_int8_gb": 0.231,
+    "memory_int4_gb": 0.115
   }
 }

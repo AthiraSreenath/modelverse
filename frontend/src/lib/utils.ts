@@ -20,5 +20,7 @@ export function formatBytes(gb: number): string {
 export function formatFlops(flops: number): string {
   if (flops >= 1e12) return `${(flops / 1e12).toFixed(1)}T FLOPs/tok`;
   if (flops >= 1e9) return `${(flops / 1e9).toFixed(1)}B FLOPs/tok`;
+  if (flops >= 1e6) return `${(flops / 1e6).toFixed(0)}M FLOPs/tok`;
+  if (flops >= 1e3) return `${(flops / 1e3).toFixed(0)}K FLOPs/tok`;
   return `${flops} FLOPs/tok`;
 }

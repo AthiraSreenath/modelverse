@@ -43,7 +43,10 @@
           "id": "input_layernorm",
           "label": "RMSNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 4096, "norm_type": "rms_norm" },
+          "params": {
+            "normalized_shape": 4096,
+            "norm_type": "rms_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 4096
@@ -69,7 +72,10 @@
           "id": "post_attention_layernorm",
           "label": "RMSNorm",
           "type": "layer_norm",
-          "params": { "normalized_shape": 4096, "norm_type": "rms_norm" },
+          "params": {
+            "normalized_shape": 4096,
+            "norm_type": "rms_norm"
+          },
           "repeat": 1,
           "children": [],
           "param_count": 4096
@@ -94,7 +100,10 @@
       "id": "norm",
       "label": "Final RMSNorm",
       "type": "layer_norm",
-      "params": { "normalized_shape": 4096, "norm_type": "rms_norm" },
+      "params": {
+        "normalized_shape": 4096,
+        "norm_type": "rms_norm"
+      },
       "repeat": 1,
       "children": [],
       "param_count": 4096
@@ -103,22 +112,26 @@
       "id": "lm_head",
       "label": "LM Head",
       "type": "linear",
-      "params": { "in_features": 4096, "out_features": 32000, "bias": false },
+      "params": {
+        "in_features": 4096,
+        "out_features": 32000,
+        "bias": false
+      },
       "repeat": 1,
       "children": [],
       "param_count": 131072000
     }
   ],
   "compute": {
-    "params_total": 7241732096,
+    "params_total": 6973296640,
     "params_embedding": 131072000,
-    "params_encoder": 6710886400,
-    "params_head": 131072000,
-    "flops_per_token": 14400000000000,
-    "memory_fp32_gb": 27.64,
-    "memory_fp16_gb": 13.82,
-    "memory_bf16_gb": 13.82,
-    "memory_int8_gb": 6.91,
-    "memory_int4_gb": 3.46
+    "params_encoder": 6711148544,
+    "params_head": 131076096,
+    "flops_per_token": 14092861440,
+    "memory_fp32_gb": 25.978,
+    "memory_fp16_gb": 12.989,
+    "memory_bf16_gb": 12.989,
+    "memory_int8_gb": 6.494,
+    "memory_int4_gb": 3.247
   }
 }
