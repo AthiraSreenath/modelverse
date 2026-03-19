@@ -153,5 +153,8 @@
     "memory_bf16_gb": 0.246,
     "memory_int8_gb": 0.123,
     "memory_int4_gb": 0.062
-  }
+  },
+  "architectures": [
+    "BertForMaskedLM"
+  ]
 }

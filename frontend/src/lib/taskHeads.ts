@@ -3,7 +3,7 @@
  * Used by the TaskSwitcher to swap the head without a backend round-trip.
  */
 
-import type { ArchBlock } from "./ir";
+import type { ArchBlock, ArchitectureIR } from "./ir";
 
 export type TaskId = "mlm" | "classification" | "ner" | "qa";
 
@@ -28,6 +28,42 @@ export function isEncoderOnly(blocks: ArchBlock[]): boolean {
   );
   const hasDecoder = blocks.some((b) => b.id === "decoder");
   return hasEncoder && !hasDecoder;
+}
+
+/**
+ * Returns true only for base/pre-trained encoder models that have NOT yet been
+ * fine-tuned for a downstream task (e.g. bert-base-uncased, distilbert-base-uncased).
+ *
+ * Detection priority:
+ *   1. ir.architectures (raw HF list) - most reliable, set from config.json
+ *   2. ir.task - derived string, reliable for HF-sourced models
+ *
+ * Fine-tuned models (dslim/distilbert-NER, textattack/bert-base-SST-2, etc.) will
+ * have a non-MaskedLM architecture class and should NOT show the task switcher.
+ */
+export function isBaseEncoderModel(ir: ArchitectureIR): boolean {
+  if (!isEncoderOnly(ir.blocks)) return false;
+
+  // Primary check: raw HF architectures field
+  if (ir.architectures && ir.architectures.length > 0) {
+    const archStr = ir.architectures.join(" ").toLowerCase();
+    // Only show switcher for base/masked-LM models
+    const isFineTuned =
+      archStr.includes("tokenclassification") ||
+      archStr.includes("sequenceclassification") ||
+      archStr.includes("questionanswering") ||
+      archStr.includes("multiplechoice") ||
+      archStr.includes("nextsentenceprediction");
+    return !isFineTuned;
+  }
+
+  // Fallback: task string (covers prebaked JSONs before architectures field was added)
+  if (ir.task) {
+    return ir.task === "fill-mask" || ir.task === "unknown";
+  }
+
+  // Default: assume base model if we have no info
+  return true;
 }
 
 /**

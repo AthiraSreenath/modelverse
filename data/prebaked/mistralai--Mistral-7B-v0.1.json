@@ -168,5 +168,8 @@
     "memory_bf16_gb": 13.489,
     "memory_int8_gb": 6.744,
     "memory_int4_gb": 3.372
-  }
+  },
+  "architectures": [
+    "MistralForCausalLM"
+  ]
 }

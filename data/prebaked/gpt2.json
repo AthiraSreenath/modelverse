@@ -151,5 +151,8 @@
     "memory_bf16_gb": 0.232,
     "memory_int8_gb": 0.116,
     "memory_int4_gb": 0.058
-  }
+  },
+  "architectures": [
+    "GPT2LMHeadModel"
+  ]
 }

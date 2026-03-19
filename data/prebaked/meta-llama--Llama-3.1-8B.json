@@ -168,5 +168,8 @@
     "memory_bf16_gb": 14.958,
     "memory_int8_gb": 7.479,
     "memory_int4_gb": 3.739
-  }
+  },
+  "architectures": [
+    "LlamaForCausalLM"
+  ]
 }

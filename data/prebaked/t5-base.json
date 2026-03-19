@@ -276,5 +276,8 @@
     "memory_bf16_gb": 0.461,
     "memory_int8_gb": 0.231,
     "memory_int4_gb": 0.115
-  }
+  },
+  "architectures": [
+    "T5ForConditionalGeneration"
+  ]
 }

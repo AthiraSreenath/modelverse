@@ -174,6 +174,7 @@ class ArchitectureIR(BaseModel):
     display_name: str | None = None    # Human-readable name
     family: str | None = None          # "bert" | "gpt2" | "llama" | "mistral" | "t5" …
     task: str | None = None            # "token-classification" | "text-generation" …
+    architectures: list[str] = Field(default_factory=list)  # raw HF architectures list e.g. ["BertForMaskedLM"]
     source: SourceType
     source_confidence: SourceConfidence = SourceConfidence.EXACT
     source_refs: list[SourceRef] = Field(default_factory=list)

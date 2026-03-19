@@ -67,6 +67,8 @@ export interface ArchitectureIR {
   display_name: string | null;
   family: string | null;
   task: string | null;
+  /** Raw HuggingFace architectures list, e.g. ["BertForMaskedLM"]. Empty for non-HF sources. */
+  architectures: string[];
   source: SourceType;
   source_confidence: SourceConfidence;
   source_refs: SourceRef[];

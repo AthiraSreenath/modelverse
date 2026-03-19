@@ -9,7 +9,7 @@ import type {
   ChatMessage,
   DiffEntry,
 } from "./ir";
-import { type TaskId, buildTaskHead, inferTask, isEncoderOnly } from "./taskHeads";
+import { type TaskId, buildTaskHead, inferTask, isBaseEncoderModel } from "./taskHeads";
 
 interface ModelVerseState {
   // Current Architecture IR
@@ -60,7 +60,7 @@ export const useStore = create<ModelVerseState>((set, get) => ({
     ir,
     latestDiff: [],
     resolveError: null,
-    activeTask: isEncoderOnly(ir.blocks) ? inferTask(ir.blocks) : null,
+    activeTask: isBaseEncoderModel(ir) ? inferTask(ir.blocks) : null,
   }),
 
   irHistory: [],

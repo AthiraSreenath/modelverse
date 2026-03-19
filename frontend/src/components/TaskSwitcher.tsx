@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
-import { TASK_LABELS, TASK_DESCRIPTIONS, type TaskId, isEncoderOnly } from "@/lib/taskHeads";
+import { TASK_LABELS, TASK_DESCRIPTIONS, type TaskId, isBaseEncoderModel } from "@/lib/taskHeads";
 import { cn } from "@/lib/utils";
 
 const TASKS: TaskId[] = ["mlm", "classification", "ner", "qa"];
@@ -23,15 +23,15 @@ export default function TaskSwitcher() {
     }
   };
 
-  // Reset "new" flag when a new encoder model loads so the hint reappears
+  // Reset "new" flag when a base encoder model loads so the hint reappears
   // (only if the user has never seen it at all)
   useEffect(() => {
-    if (ir && isEncoderOnly(ir.blocks)) {
+    if (ir && isBaseEncoderModel(ir)) {
       isNew.current = !localStorage.getItem(SEEN_KEY);
     }
   }, [ir]);
 
-  if (!ir || !isEncoderOnly(ir.blocks)) return null;
+  if (!ir || !isBaseEncoderModel(ir)) return null;
 
   return (
     <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-indigo-500/30 bg-indigo-500/5">
