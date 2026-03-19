@@ -27,6 +27,7 @@ export type BlockType =
   | "pooling"
   | "dropout"
   | "activation"
+  | "add"
   | "unknown";
 
 export interface ArchBlock {

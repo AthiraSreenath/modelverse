@@ -93,6 +93,18 @@ export function buildGraphElements(
       let childPrevId: string | null = null;
       const childrenStartY = y;
 
+      // ── Residual skip-connection tracking ──────────────────────────────────
+      // Detect Pre-LN (LN before sublayer, e.g. LLaMA/GPT-2) vs Post-LN (LN
+      // after Add, e.g. BERT) so we can route the "x" skip path correctly.
+      //   Post-LN: x → Attn → Add ← x        then LN; anchor updates at LN
+      //   Pre-LN:  x → LN → Attn → Add ← x   then next stack; anchor stays at Add
+      const isPreLN = block.children[0]?.type === "layer_norm";
+      // residualAnchor: node-id that holds the current "clean x" representation
+      let residualAnchor: string = block.id;
+      // pendingSkipSrc: saved anchor at the moment a sublayer begins
+      let pendingSkipSrc: string = block.id;
+      // ───────────────────────────────────────────────────────────────────────
+
       for (const child of block.children) {
         const childIsExpanded = expandedBlockIds.has(child.id);
         const childNodeData: BlockNodeData = {
@@ -101,9 +113,10 @@ export function buildGraphElements(
           isDiffed: diffedIds.has(child.id),
           diffDelta: diffedIds.get(child.id),
         };
+        const childNodeId = `${block.id}__${child.id}`;
 
         nodes.push({
-          id: `${block.id}__${child.id}`,
+          id: childNodeId,
           type: "blockNode",
           position: { x: childX, y },
           data: { data: childNodeData },
@@ -112,23 +125,60 @@ export function buildGraphElements(
 
         if (childPrevId) {
           edges.push({
-            id: `${childPrevId}->${block.id}__${child.id}`,
+            id: `${childPrevId}->${childNodeId}`,
             source: childPrevId,
-            target: `${block.id}__${child.id}`,
+            target: childNodeId,
             type: "smoothstep",
             style: { stroke: "#6366f1", strokeWidth: 1 },
           });
         } else {
           edges.push({
-            id: `${block.id}->${block.id}__${child.id}`,
+            id: `${block.id}->${childNodeId}`,
             source: block.id,
-            target: `${block.id}__${child.id}`,
+            target: childNodeId,
             type: "smoothstep",
             style: { stroke: "#6366f1", strokeWidth: 1, strokeDasharray: "4" },
           });
         }
 
-        childPrevId = `${block.id}__${child.id}`;
+        // ── Residual skip edges ──────────────────────────────────────────────
+        const ct = child.type;
+        if (
+          ct === "multi_head_attention" ||
+          ct === "feed_forward" ||
+          ct === "moe_feed_forward"
+        ) {
+          // Sublayer starting — snapshot the current residual anchor so the
+          // skip path originates from here (before this sublayer).
+          pendingSkipSrc = residualAnchor;
+        } else if (ct === "add") {
+          // Draw the dashed "x" skip edge bypassing the preceding sublayer.
+          edges.push({
+            id: `skip::${pendingSkipSrc}::${childNodeId}`,
+            source: pendingSkipSrc,
+            target: childNodeId,
+            type: "smoothstep",
+            style: {
+              stroke: "#4ade80",
+              strokeWidth: 1.5,
+              strokeDasharray: "5 3",
+            },
+            label: "x",
+            labelStyle: { fill: "#4ade80", fontSize: 9 },
+            labelBgStyle: { fill: "transparent" },
+          });
+          // The Add output is now the "clean x" for the next skip.
+          residualAnchor = childNodeId;
+        } else if (ct === "layer_norm" && !isPreLN) {
+          // Post-LN: the LN output IS the representation carried into the next
+          // sublayer, so update the residual anchor here.
+          residualAnchor = childNodeId;
+        }
+        // Pre-LN LayerNorm: residualAnchor deliberately not updated — the bypass
+        // wraps the LN + sublayer together, sourcing from the previous Add/entry.
+        // ────────────────────────────────────────────────────────────────────
+
+        childPrevId = childNodeId;
         y += NODE_HEIGHT + CHILD_VERT_GAP;
 
         // ── Grandchild expansion (e.g. MoE FFN → Router / Expert FFNs / Combine) ──
