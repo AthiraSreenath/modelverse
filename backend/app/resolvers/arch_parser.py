@@ -42,6 +42,17 @@ def _act(config: dict, key: str = "hidden_act") -> ActivationType:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _stack_param_count(children: list[ArchBlock], repeat: int) -> int:
+    """Total parameters for a transformer stack = one layer's params × repeat."""
+    per_layer = sum(c.param_count for c in children if c.param_count is not None)
+    return per_layer * repeat
+
+
+# ---------------------------------------------------------------------------
 # Family-specific parsers
 # ---------------------------------------------------------------------------
 
@@ -97,6 +108,7 @@ def _parse_bert_family(config: dict, model_id: str) -> ArchitectureIR:
         },
         repeat=num_layers,
         children=children,
+        param_count=_stack_param_count(children, num_layers),
     )
 
     blocks: list[ArchBlock] = [emb_block, encoder_block]
@@ -156,6 +168,7 @@ def _parse_gpt2_family(config: dict, model_id: str) -> ArchitectureIR:
         },
         repeat=num_layers,
         children=children,
+        param_count=_stack_param_count(children, num_layers),
     )
 
     ln_f = ArchBlock(
@@ -218,7 +231,8 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
     encoder = ArchBlock(id="encoder", label="T5 Encoder", type=BlockType.TRANSFORMER_STACK,
                         params={"hidden_size": d_model, "num_hidden_layers": num_encoder_layers,
                                 "num_attention_heads": num_heads, "is_causal": False},
-                        repeat=num_encoder_layers, children=enc_children)
+                        repeat=num_encoder_layers, children=enc_children,
+                        param_count=_stack_param_count(enc_children, num_encoder_layers))
 
     dec_children = [
         ArchBlock(id="self_attn", label="Causal Self-Attention", type=BlockType.MULTI_HEAD_ATTENTION,
@@ -243,7 +257,8 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
     decoder = ArchBlock(id="decoder", label="T5 Decoder", type=BlockType.TRANSFORMER_STACK,
                         params={"hidden_size": d_model, "num_hidden_layers": num_decoder_layers,
                                 "num_attention_heads": num_heads, "is_causal": True},
-                        repeat=num_decoder_layers, children=dec_children)
+                        repeat=num_decoder_layers, children=dec_children,
+                        param_count=_stack_param_count(dec_children, num_decoder_layers))
 
     lm_head = ArchBlock(id="lm_head", label="LM Head", type=BlockType.LINEAR,
                         params={"in_features": d_model, "out_features": vocab_size, "bias": False},
@@ -305,6 +320,7 @@ def _parse_mamba_family(config: dict, model_id: str) -> ArchitectureIR:
         params={"hidden_size": d_model, "num_hidden_layers": n_layer,
                 "d_state": d_state, "d_conv": d_conv, "expand": expand},
         repeat=n_layer, children=ssm_children,
+        param_count=_stack_param_count(ssm_children, n_layer),
     )
 
     norm_f = ArchBlock(id="norm_f", label="Final RMSNorm", type=BlockType.LAYER_NORM,
@@ -442,6 +458,7 @@ def _parse_llama_family(config: dict, model_id: str) -> ArchitectureIR:
         },
         repeat=num_layers,
         children=children,
+        param_count=_stack_param_count(children, num_layers),
     )
 
     norm = ArchBlock(
