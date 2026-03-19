@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/modelverse-logo.svg" alt="ModelVerse logo" width="104" height="104" />
+<img src="assets/modelverse-logo.svg" alt="ModelVerse logo" width="112" height="112" />
 
 # ModelVerse
 

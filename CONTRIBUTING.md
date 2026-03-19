@@ -105,6 +105,8 @@ Key files to know:
 - `frontend/src/lib/store.ts` - Zustand store (IR, chat history, undo stack).
 - `frontend/src/components/graph/` - React Flow graph, node types, layout.
 
+**Logo (keep in sync):** The app header loads `frontend/public/modelverse-mark.svg`. The favicon is `frontend/src/app/icon.svg`. The GitHub README image is `assets/modelverse-logo.svg`. All three should be identical SVG (graph-style MV on the indigo gradient). Edit one, then copy to the other two paths.
+
 ---
 
 ## 5. Environment variables
