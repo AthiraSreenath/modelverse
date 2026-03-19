@@ -1,4 +1,6 @@
+<div align="center">
 
+<img src="assets/modelverse-logo.svg" alt="ModelVerse logo" width="104" height="104" />
 
 # ModelVerse
 
@@ -6,14 +8,14 @@
 
 ### Type a name. See every layer. Ask questions. Edit and see the impact - instantly.
 
-Python
-FastAPI
-Next.js
-React Flow
-uv
-License
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![React Flow](https://img.shields.io/badge/React%20Flow-6366f1?logo=react&logoColor=white)](https://reactflow.dev/)
+[![uv](https://img.shields.io/badge/deps-uv-6E56CF)](https://docs.astral.sh/uv/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 
-
+</div>
 
 ---
 

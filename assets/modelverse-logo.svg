@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="ModelVerse">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#4f46e5"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <!-- Layer graph: nodes (rounded rects) + edges suggesting architecture -->
+  <g fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.95">
+    <rect x="22" y="24" width="84" height="14" rx="4" fill="rgba(255,255,255,0.15)" stroke="#fff"/>
+    <rect x="22" y="57" width="52" height="14" rx="4" fill="rgba(255,255,255,0.15)" stroke="#fff"/>
+    <rect x="22" y="90" width="84" height="14" rx="4" fill="rgba(255,255,255,0.15)" stroke="#fff"/>
+    <path d="M64 38v12M64 71h20V57h-20M44 71V85"/>
+    <circle cx="64" cy="38" r="4" fill="#fff" stroke="none"/>
+    <circle cx="64" cy="71" r="4" fill="#fff" stroke="none"/>
+    <circle cx="64" cy="97" r="4" fill="#fff" stroke="none"/>
+  </g>
+</svg>
