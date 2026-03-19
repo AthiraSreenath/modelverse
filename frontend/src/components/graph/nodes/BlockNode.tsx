@@ -64,8 +64,16 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
     setSelectedBlockId(block.id);
   }, [block.id, setSelectedBlockId]);
 
+  // For container blocks (children present), param_count already covers all repeats.
+  // For leaf blocks, param_count is per-instance and must be scaled by repeat.
   const paramCount =
-    block.param_count != null ? formatParams(block.param_count * block.repeat) : null;
+    block.param_count != null
+      ? formatParams(
+          block.children.length > 0
+            ? block.param_count
+            : block.param_count * block.repeat
+        )
+      : null;
 
   return (
     <div

@@ -51,7 +51,8 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 2362368
+          "param_count": 2362368,
+          "notes": "Bidirectional self-attention (non-causal). All tokens attend to all others. Output is added back to the input via a residual connection before LayerNorm: x = LayerNorm(x + Attention(x))."
         },
         {
           "id": "attn_layernorm",
@@ -63,7 +64,8 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 1536
+          "param_count": 1536,
+          "notes": "Post-attention LayerNorm. Applied after the residual addition: x = LayerNorm(x_prev + Attention(x_prev)). This is Post-LN style (original BERT). Pre-LN (used in later models) applies norm before attention."
         },
         {
           "id": "ffn",
@@ -76,7 +78,8 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 4722688
+          "param_count": 4722688,
+          "notes": "Two-layer MLP: Linear(768\u21923072) + GELU + Linear(3072\u2192768). Output is added to the input via a second residual: x = LayerNorm(x + FFN(x)). The 4\u00d7 expansion (3072 = 4\u00d7768) is standard. Holds ~62% of per-layer parameters."
         },
         {
           "id": "ffn_layernorm",
@@ -88,14 +91,15 @@
           },
           "repeat": 1,
           "children": [],
-          "param_count": 1536
+          "param_count": 1536,
+          "notes": "Post-FFN LayerNorm. Applied after the second residual addition: x = LayerNorm(x_prev + FFN(x_prev)). Full transformer block: x \u2192 Attn \u2192 +x \u2192 LN \u2192 FFN \u2192 +x \u2192 LN."
         }
       ],
       "param_count": 85054464
     },
     {
       "id": "pooler",
-      "label": "Pooler",
+      "label": "Pooler (CLS projection)",
       "type": "linear",
       "params": {
         "in_features": 768,
@@ -104,7 +108,8 @@
       },
       "repeat": 1,
       "children": [],
-      "param_count": 590592
+      "param_count": 590592,
+      "notes": "Takes only the [CLS] token representation (position 0) and projects it through Linear(768\u2192768) + Tanh. Used for sentence-level tasks (classification, NLI). Not used in token-level tasks (NER, QA) \u2014 often frozen or discarded in fine-tuning."
     }
   ],
   "compute": {
