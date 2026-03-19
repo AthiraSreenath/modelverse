@@ -89,6 +89,10 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-400 !border-slate-600" />
+      {/* Hidden side handles used exclusively for residual skip edges */}
+      <Handle type="source" position={Position.Right} id="source-right" style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="source" position={Position.Left}  id="source-left"  style={{ opacity: 0, pointerEvents: "none" }} />
+      <Handle type="target" position={Position.Left}  id="target-left"  style={{ opacity: 0, pointerEvents: "none" }} />
 
       <div className="flex items-center gap-2">
         <div className={cn("w-2 h-2 rounded-full flex-shrink-0", dotClass)} />

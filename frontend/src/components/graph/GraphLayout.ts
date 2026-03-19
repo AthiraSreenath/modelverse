@@ -153,10 +153,18 @@ export function buildGraphElements(
           pendingSkipSrc = residualAnchor;
         } else if (ct === "add") {
           // Draw the dashed "x" skip edge bypassing the preceding sublayer.
+          // Route depends on whether the source is the parent block or a sibling:
+          //   Parent → Add : exit right of parent, enter left of Add
+          //                  (compact C-curve in the 40px gap between columns)
+          //   Sibling → Add: exit left of sibling, enter left of Add
+          //                  (U-curve to the left of the child column)
+          const isParentSrc = pendingSkipSrc === block.id;
           edges.push({
             id: `skip::${pendingSkipSrc}::${childNodeId}`,
             source: pendingSkipSrc,
             target: childNodeId,
+            sourceHandle: isParentSrc ? "source-right" : "source-left",
+            targetHandle: "target-left",
             type: "smoothstep",
             style: {
               stroke: "#4ade80",
