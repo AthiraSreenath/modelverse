@@ -45,7 +45,7 @@ async def tool_search_huggingface(model_id: str) -> dict:
 async def tool_search_web(query: str) -> dict:
     """
     Search the web for architecture information via DuckDuckGo instant answer API.
-    For Phase 3 — finding architectures of models not on HF.
+    For Phase 3 - finding architectures of models not on HF.
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -140,7 +140,7 @@ def tool_explain_layer(layer_type: str, params: dict) -> dict:
         if mask: scores = scores.masked_fill(mask, -inf)
         out = softmax(scores) @ V
         return self.o_proj(out)""",
-            "why_it_exists": "Splitting into multiple heads lets the model attend to different aspects of the input simultaneously — syntax in one head, semantics in another. 12 heads at d=768 gives each head a 64-dim subspace.",
+            "why_it_exists": "Splitting into multiple heads lets the model attend to different aspects of the input simultaneously - syntax in one head, semantics in another. 12 heads at d=768 gives each head a 64-dim subspace.",
         },
         "feed_forward": {
             "description": "A two-layer MLP applied independently to each token position. Expands then contracts the representation, acting as a 'memory' or 'lookup table' for factual knowledge.",
@@ -182,7 +182,7 @@ def tool_explain_layer(layer_type: str, params: dict) -> dict:
         mean = x.mean(dim=-1, keepdim=True)
         std = x.std(dim=-1, keepdim=True)
         return self.weight * (x - mean) / (std + 1e-5) + self.bias""",
-            "why_it_exists": "Stabilises training by preventing activations from growing or vanishing. Critical for deep networks — without it, gradients become unstable after ~4 layers.",
+            "why_it_exists": "Stabilises training by preventing activations from growing or vanishing. Critical for deep networks - without it, gradients become unstable after ~4 layers.",
         },
         "moe_feed_forward": {
             "description": "A Mixture-of-Experts FFN routes each token to the top-K of N expert networks. Only K experts activate per token, keeping compute constant while multiplying model capacity.",
@@ -203,7 +203,7 @@ def tool_explain_layer(layer_type: str, params: dict) -> dict:
             "why_it_exists": "Scales model capacity (total params) without scaling compute per token. Mixtral-8x7B has 8 experts but only activates 2 per token, giving ~13B active params from a 47B parameter model.",
         },
         "ssm": {
-            "description": "A Selective State Space Model layer. Unlike attention, it processes sequences recurrently with state-selective dynamics — O(n) in sequence length vs O(n²) for attention.",
+            "description": "A Selective State Space Model layer. Unlike attention, it processes sequences recurrently with state-selective dynamics - O(n) in sequence length vs O(n²) for attention.",
             "formula": "h_t = A·h_{t-1} + B·x_t,  y_t = C·h_t + D·x_t  (A, B, C input-dependent)",
             "pseudocode": """class MambaSSM(nn.Module):
     def forward(self, x):
@@ -216,7 +216,7 @@ def tool_explain_layer(layer_type: str, params: dict) -> dict:
         # Parallel scan over sequence
         y = selective_scan(x, A_bar, B, C, self.D)
         return y""",
-            "why_it_exists": "Attention is O(n²) in sequence length — expensive for long contexts. SSMs are O(n) and can model long-range dependencies through their state, though they lack random access like attention.",
+            "why_it_exists": "Attention is O(n²) in sequence length - expensive for long contexts. SSMs are O(n) and can model long-range dependencies through their state, though they lack random access like attention.",
         },
     }
 
@@ -228,6 +228,6 @@ def tool_explain_layer(layer_type: str, params: dict) -> dict:
     return {
         "description": f"A {layer_type} layer. Parameters: {params}",
         "formula": "See model documentation",
-        "pseudocode": f"# {layer_type} — implementation varies by architecture",
+        "pseudocode": f"# {layer_type} - implementation varies by architecture",
         "why_it_exists": "Contributes to the model's representation learning capacity.",
     }

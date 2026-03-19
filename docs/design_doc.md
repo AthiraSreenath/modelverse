@@ -1,24 +1,24 @@
-# ModelVerse — Design Document
+# ModelVerse - Design Document
 
 > **"Figma for neural network architectures."**
-> Inspect, understand, edit, and reason about any ML model — by name, by file, or by description.
+> Inspect, understand, edit, and reason about any ML model - by name, by file, or by description.
 
 ---
 
 ## Table of Contents
 
 1. [Product Vision](#1-product-vision)
-2. [Prior Art — What Exists and What We Take](#2-prior-art)
+2. [Prior Art - What Exists and What We Take](#2-prior-art)
 3. [The Core Mental Model](#3-the-core-mental-model)
-4. [Architecture IR — The Universal Schema](#4-architecture-ir)
+4. [Architecture IR - The Universal Schema](#4-architecture-ir)
 5. [Input Resolution Pipeline](#5-input-resolution-pipeline)
 6. [System Components](#6-system-components)
 7. [UI Layout](#7-ui-layout)
 8. [Tech Stack](#8-tech-stack)
 9. [Project Structure](#9-project-structure)
 10. [API Contracts](#10-api-contracts)
-11. [LLM Brain — Tool Definitions](#11-llm-brain)
-12. [Compute Estimator — Formulas](#12-compute-estimator)
+11. [LLM Brain - Tool Definitions](#11-llm-brain)
+12. [Compute Estimator - Formulas](#12-compute-estimator)
 13. [Phased Roadmap](#13-phased-roadmap)
 14. [Key Design Decisions](#14-key-design-decisions)
 15. [Infrastructure & Hosting](#15-infrastructure--hosting)
@@ -29,7 +29,7 @@
 
 ModelVerse is an open-source **Architecture Reasoning Engine** for machine learning models.
 
-A user types a model name, uploads a file, or describes a model in plain language. ModelVerse shows them the full architecture as an interactive graph, lets them click any layer to understand it, chat with an LLM about it, edit it and see the parameter and compute delta instantly, and compare it against another model — all without writing a single line of code.
+A user types a model name, uploads a file, or describes a model in plain language. ModelVerse shows them the full architecture as an interactive graph, lets them click any layer to understand it, chat with an LLM about it, edit it and see the parameter and compute delta instantly, and compare it against another model - all without writing a single line of code.
 
 ### Who this is for
 
@@ -54,11 +54,11 @@ A user types a model name, uploads a file, or describes a model in plain languag
 
 We studied the source code of the two best existing tools before designing anything.
 
-### Netron — [github.com/lutzroeder/netron](https://github.com/lutzroeder/netron) (32k stars)
+### Netron - [github.com/lutzroeder/netron](https://github.com/lutzroeder/netron) (32k stars)
 
 The gold standard for model file visualization. Studied: `view.js` (6,100 lines), `grapher.js` (1,100 lines), `safetensors.js`, `pytorch.js`, `onnx.js`.
 
-**What makes it great — and what we copy directly:**
+**What makes it great - and what we copy directly:**
 
 - **`ModelFactory` pattern**: every format has `match()` (sniffs the file) + `open()` (parses it). Clean, extensible to any format. We implement this exact pattern in Python on the backend.
 - **Safetensors header-only parsing**: reads exactly 8 bytes (a little-endian size prefix) then N bytes of JSON to get every tensor name, shape, and dtype. Never touches the weights. We copy this.
@@ -68,7 +68,7 @@ The gold standard for model file visualization. Studied: `view.js` (6,100 lines)
 - **Drill-down property chain**: Node Properties → Connection Properties → Tensor Properties → Documentation. Each pushes onto a navigation stack.
 
 **What it's missing:**
-- No model name lookup — you must have the file
+- No model name lookup - you must have the file
 - No LLM, no natural language Q&A
 - No architecture editing
 - No compute estimation
@@ -76,20 +76,20 @@ The gold standard for model file visualization. Studied: `view.js` (6,100 lines)
 - No comparison view
 - No pre-baked knowledge of architectures
 
-### Model Anatomy — [modelanalysis.ai](https://model-anatomy-ram-komarraju.netlify.app/)
+### Model Anatomy - [modelanalysis.ai](https://model-anatomy-ram-komarraju.netlify.app/)
 
 A pre-baked interactive LLM architecture explorer (not open source). Built in one evening using a coding agent.
 
-**What makes it great — and what we copy:**
+**What makes it great - and what we copy:**
 
 - **Parameter count with formula hover**: hover any number → see `3 × 768 × 768 = 1,769,472` (Q+K+V projections). Every single number is explainable. This is the killer UX detail and we make it a core principle.
 - **PyTorch pseudocode panel**: click any module → see its implementation. We include this.
 - **Side-by-side model comparison**: two models in parallel columns, differences visually apparent.
-- **Pre-baked architecture library**: architectures are hard-coded for popular models — loads in milliseconds. We ship a JSON library of ~50 models for the same reason.
+- **Pre-baked architecture library**: architectures are hard-coded for popular models - loads in milliseconds. We ship a JSON library of ~50 models for the same reason.
 - **Family filter**: group models by Llama, Gemma, Mistral etc.
 
 **What it's missing:**
-- Fixed set of ~20 models — can't load any HF model or your own file
+- Fixed set of ~20 models - can't load any HF model or your own file
 - No LLM chat
 - No architecture editing or compute delta
 - No file upload
@@ -119,7 +119,7 @@ The real product is an **Architecture Reasoning Engine** that answers three ques
 2. *What happens if I change it?*
 3. *How expensive will it be?*
 
-Everything — the graph, the chat panel, the compute bar, the diff view — exists to answer those three questions.
+Everything - the graph, the chat panel, the compute bar, the diff view - exists to answer those three questions.
 
 ---
 
@@ -227,11 +227,11 @@ This means the visualization engine, compute estimator, edit engine, and LLM Bra
 
 | Value | Meaning |
 |---|---|
-| `hf_config` | Parsed directly from HuggingFace `config.json` — exact |
-| `file_header` | Parsed from uploaded file header (safetensors/GGUF/ONNX) — exact |
-| `paper` | Extracted from ArXiv or published paper — high confidence |
-| `web_synthesis` | Synthesized from multiple web sources — medium confidence |
-| `llm_knowledge` | From LLM training data alone — lower confidence, may be stale |
+| `hf_config` | Parsed directly from HuggingFace `config.json` - exact |
+| `file_header` | Parsed from uploaded file header (safetensors/GGUF/ONNX) - exact |
+| `paper` | Extracted from ArXiv or published paper - high confidence |
+| `web_synthesis` | Synthesized from multiple web sources - medium confidence |
+| `llm_knowledge` | From LLM training data alone - lower confidence, may be stale |
 
 Unknown fields are represented as `null` and rendered as greyed-out nodes in the UI.
 
@@ -316,7 +316,7 @@ from huggingface_hub import hf_hub_download
 config_path = hf_hub_download(repo_id=model_id, filename="config.json")
 ```
 
-Fetches only `config.json` — never model weights. Also fetches the model card (README.md) for task and description context.
+Fetches only `config.json` - never model weights. Also fetches the model card (README.md) for task and description context.
 
 Extracts from config: `model_type`, `num_hidden_layers`, `num_attention_heads`, `hidden_size`, `intermediate_size`, `vocab_size`, `max_position_embeddings`, `architectures`, activation function, normalization type, position embedding type (absolute, RoPE, ALiBi), attention variant (MHA/GQA/MQA), and task-specific head config.
 
@@ -349,7 +349,7 @@ class SafetensorsParser:
         size = struct.unpack_from("<Q", stream.read(8))[0]
         header = json.loads(stream.read(size))
         # header contains: {tensor_name: {dtype, shape, data_offsets}}
-        # Never read data_offsets — weights not needed
+        # Never read data_offsets - weights not needed
         return parse_state_dict_keys(header)
 ```
 
@@ -357,7 +357,7 @@ class SafetensorsParser:
 
 | Format | What we read | How |
 |---|---|---|
-| `.safetensors` | 8-byte prefix + JSON header | Layer names, shapes, dtypes — zero weight load |
+| `.safetensors` | 8-byte prefix + JSON header | Layer names, shapes, dtypes - zero weight load |
 | `.gguf` | Metadata block in header | `architecture`, `n_layer`, `n_head`, `n_embd` etc. |
 | `.onnx` | `graph.node` list | `op_type`, `input`, `output`, `attribute` for each node |
 | `.pt` / `.bin` | `state_dict` keys only | Infer architecture from key naming patterns |
@@ -384,7 +384,7 @@ Converts raw HF config dict or inferred state_dict keys into the Architecture IR
 
 ### 6.6 Compute Estimator
 
-Pure arithmetic — no model loading. Runs in <1ms.
+Pure arithmetic - no model loading. Runs in <1ms.
 
 See [Section 12](#12-compute-estimator) for full formulas.
 
@@ -408,7 +408,7 @@ def apply_edit(ir: ArchitectureIR, spec: EditSpec) -> EditResult:
 
 ### 6.8 LLM Brain
 
-The reasoning engine. Receives the current Architecture IR as structured JSON in its system prompt — never raw weights. Uses tool calling for any action requiring data outside its context.
+The reasoning engine. Receives the current Architecture IR as structured JSON in its system prompt - never raw weights. Uses tool calling for any action requiring data outside its context.
 
 See [Section 11](#11-llm-brain) for tool definitions.
 
@@ -418,7 +418,7 @@ Converts Architecture IR → interactive React Flow graph.
 
 **Graph renderer:**
 - React Flow (SVG-based, Dagre layout, compound/nested nodes)
-- Layout runs in a Web Worker (copied from Netron) — prevents UI freeze for 80-layer models
+- Layout runs in a Web Worker (copied from Netron) - prevents UI freeze for 80-layer models
 - Compound nodes: a `transformer_stack` renders as a single block with a `×12` badge. Click → expands to show all children (Self-Attention, FFN, LayerNorm)
 - Edges carry tensor shapes: `[batch, seq_len, 768]` shown as edge labels, hover for full shape
 
@@ -474,13 +474,13 @@ Three-panel layout, inspired by Netron's structure and Model Anatomy's content:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Left panel** — Interactive graph. Collapsible compound nodes, tensor shapes on edges, drag/zoom/pan.
+**Left panel** - Interactive graph. Collapsible compound nodes, tensor shapes on edges, drag/zoom/pan.
 
-**Middle panel** — Detail panel. Activated by clicking a node. Shows: parameter table with formula hover, PyTorch pseudocode, input/output shapes, "Ask LLM" button. Inspired by Model Anatomy.
+**Middle panel** - Detail panel. Activated by clicking a node. Shows: parameter table with formula hover, PyTorch pseudocode, input/output shapes, "Ask LLM" button. Inspired by Model Anatomy.
 
-**Right panel** — Chat panel. Streaming LLM responses. Tool call results render inline (e.g. a compute delta table appears in the chat stream when `estimate_compute` fires). The LLM has the full Architecture IR in its system context at all times.
+**Right panel** - Chat panel. Streaming LLM responses. Tool call results render inline (e.g. a compute delta table appears in the chat stream when `estimate_compute` fires). The LLM has the full Architecture IR in its system context at all times.
 
-**Bottom bar** — Always visible. Total parameters, memory at fp32/fp16/int8, FLOPs per token. "Edit" button opens a text input for NL architecture edits.
+**Bottom bar** - Always visible. Total parameters, memory at fp32/fp16/int8, FLOPs per token. "Edit" button opens a text input for NL architecture edits.
 
 ---
 
@@ -505,7 +505,7 @@ Three-panel layout, inspired by Netron's structure and Model Anatomy's content:
 | **Next.js 15 (App Router)** | Web framework | Canonical React framework, Vercel native, API routes if needed |
 | **React Flow** | Interactive graph | SVG + Dagre + compound nodes within React. Equivalent to Netron's `grapher.js` but React-native |
 | **Tailwind CSS** | Styling | Utility-first, consistent with shadcn/ui |
-| **shadcn/ui** | UI components | High quality, accessible, unstyled by default — easy to theme dark |
+| **shadcn/ui** | UI components | High quality, accessible, unstyled by default - easy to theme dark |
 | **Zustand** | Client state | Current IR, chat history, edit history, undo/redo stack |
 | **Vercel AI SDK** | LLM streaming | Tool call rendering, streaming text, works out of the box with Vercel |
 | **Web Worker (native)** | Graph layout | Dagre layout for large models runs off the main thread |
@@ -527,8 +527,8 @@ Three-panel layout, inspired by Netron's structure and Model Anatomy's content:
 
 ### LLM
 
-- **Claude Sonnet** (primary) or **GPT-4o** (fallback) — both have strong tool calling and code reasoning
-- The LLM receives the Architecture IR as structured JSON in its system prompt — never raw weights
+- **Claude Sonnet** (primary) or **GPT-4o** (fallback) - both have strong tool calling and code reasoning
+- The LLM receives the Architecture IR as structured JSON in its system prompt - never raw weights
 - Context window usage: IR is ~2–5KB for most models; even a 200K context window leaves room for extensive chat history
 
 ---
@@ -620,7 +620,7 @@ modelverse/
 
 ## 10. API Contracts
 
-All requests/responses use JSON. The backend is stateless — no session storage.
+All requests/responses use JSON. The backend is stateless - no session storage.
 
 ### `POST /resolve`
 
@@ -829,7 +829,7 @@ def explain_layer(layer_type: str, params: dict) -> dict:
 
 ## 12. Compute Estimator
 
-All estimates are formula-based — no model loading, runs in <1ms.
+All estimates are formula-based - no model loading, runs in <1ms.
 
 ### Parameter counting (transformer)
 
@@ -901,7 +901,7 @@ memory_training_fp32 = params_total * 4 * (1 + 1 + 2)  # weights + grads + Adam 
 
 ## 13. Phased Roadmap
 
-### Phase 1 — HF Model Visualizer
+### Phase 1 - HF Model Visualizer
 
 Any model on HuggingFace Hub, by name. No file needed.
 
@@ -936,18 +936,18 @@ Any model on HuggingFace Hub, by name. No file needed.
 
 ---
 
-### Phase 2 — File Upload
+### Phase 2 - File Upload
 
 User uploads their own model file. Parsed server-side, no cloud storage.
 
 - Supported: `.safetensors`, `.onnx`, `.pt` / `.bin`, `.gguf`, `.keras`, `.h5`
-- `ModelFactory` pattern — one parser class per format
-- All parsers use header/metadata only — no weight loading
+- `ModelFactory` pattern - one parser class per format
+- All parsers use header/metadata only - no weight loading
 - After parse → same visualization + chat + edit as Phase 1
 
 ---
 
-### Phase 3 — Any Model (Agentic Web Discovery)
+### Phase 3 - Any Model (Agentic Web Discovery)
 
 User types any model name regardless of whether it's on HF.
 
@@ -967,7 +967,7 @@ User types any model name regardless of whether it's on HF.
 
 ---
 
-### Phase 4 — Comparison + Playground + Export
+### Phase 4 - Comparison + Playground + Export
 
 - **Side-by-side comparison**: any two models in parallel columns, differences highlighted, summary bar
 - **Architecture Playground**: build from scratch visually, no code
@@ -990,10 +990,10 @@ The frontend never calls HF directly. The LLM never sees raw weights. Every comp
 The first 8 bytes of a safetensors file are a little-endian uint64 giving the header size. The next N bytes are a JSON object with every tensor's name, shape, and dtype. We never read past the header. (Learned from Netron's `safetensors.Reader`.)
 
 **Pre-baked library for famous models.**
-BERT, GPT-2, LLaMA, Mistral — these should load instantly. Shipping 50 pre-baked IRs as JSON means the most common use cases never make a network call.
+BERT, GPT-2, LLaMA, Mistral - these should load instantly. Shipping 50 pre-baked IRs as JSON means the most common use cases never make a network call.
 
 **React Flow over Netron's vanilla JS grapher.**
-Netron's `grapher.js` is 1,100 lines of hand-rolled SVG + Dagre genius. For a pure file viewer with no React, it's optimal. For ModelVerse — where the chat panel, LLM streaming, and Zustand state all live in React — React Flow (which provides the same SVG + Dagre + compound nodes inside React) is the right call.
+Netron's `grapher.js` is 1,100 lines of hand-rolled SVG + Dagre genius. For a pure file viewer with no React, it's optimal. For ModelVerse - where the chat panel, LLM streaming, and Zustand state all live in React - React Flow (which provides the same SVG + Dagre + compound nodes inside React) is the right call.
 
 **Web Worker for graph layout.**
 Copied from Netron. Dagre layout for a 80-layer model (LLaMA-70B) is CPU-intensive enough to freeze the UI thread. Layout runs in a Worker; the graph renders when it's ready.
@@ -1010,8 +1010,8 @@ Every IR field knows where it came from. Users can see whether they're looking a
 
 ### Package management
 
-- **Backend**: `uv` — `uv init --app`, `uv add`, `uv sync`, `uv run fastapi dev`. Replaces pip + venv entirely. `uv.lock` committed for reproducible installs.
-- **Frontend**: `npm` — standard for Next.js.
+- **Backend**: `uv` - `uv init --app`, `uv add`, `uv sync`, `uv run fastapi dev`. Replaces pip + venv entirely. `uv.lock` committed for reproducible installs.
+- **Frontend**: `npm` - standard for Next.js.
 
 ### Hosting
 

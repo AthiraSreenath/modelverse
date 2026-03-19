@@ -148,7 +148,7 @@ export function buildGraphElements(
           ct === "feed_forward" ||
           ct === "moe_feed_forward"
         ) {
-          // Sublayer starting — snapshot the current residual anchor so the
+          // Sublayer starting - snapshot the current residual anchor so the
           // skip path originates from here (before this sublayer).
           pendingSkipSrc = residualAnchor;
         } else if (ct === "add") {
@@ -179,7 +179,7 @@ export function buildGraphElements(
           // sublayer, so update the residual anchor here.
           residualAnchor = childNodeId;
         }
-        // Pre-LN LayerNorm: residualAnchor deliberately not updated — the bypass
+        // Pre-LN LayerNorm: residualAnchor deliberately not updated - the bypass
         // wraps the LN + sublayer together, sourcing from the previous Add/entry.
         // ────────────────────────────────────────────────────────────────────
 
@@ -234,7 +234,7 @@ export function buildGraphElements(
         }
       }
 
-      // Repeat label — only shown when the block repeats more than once.
+      // Repeat label - only shown when the block repeats more than once.
       // Height is derived from the actual y cursor so it matches the rendered
       // positions exactly, regardless of NODE_HEIGHT accuracy.
       if (block.repeat > 1) {

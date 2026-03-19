@@ -1,10 +1,10 @@
 """
 Formula-based compute estimator.
-Runs in <1ms — pure arithmetic, no model loading.
+Runs in <1ms - pure arithmetic, no model loading.
 
 Formulas based on:
-- Kaplan et al. (2020) — scaling laws
-- Chinchilla (2022) — optimal compute
+- Kaplan et al. (2020) - scaling laws
+- Chinchilla (2022) - optimal compute
 - Transformer FLOPs derivation (https://arxiv.org/pdf/2205.05198)
 """
 
@@ -32,7 +32,7 @@ def _count_block_params(block: ArchBlock) -> int:
         return child_sum * block.repeat
 
     if block.param_count is not None:
-        # Leaf node with a pre-computed value — use it, scaled by repeat
+        # Leaf node with a pre-computed value - use it, scaled by repeat
         return block.param_count * block.repeat
 
     p = block.params

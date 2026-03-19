@@ -8,7 +8,7 @@ import ResizablePanel from "@/components/layout/ResizablePanel";
 export default function Home() {
   return (
     <div className="h-screen flex flex-col bg-slate-950 overflow-hidden">
-      {/* Top bar — z-50 ensures the search dropdown floats above the graph */}
+      {/* Top bar - z-50 ensures the search dropdown floats above the graph */}
       <header className="relative z-50 flex-shrink-0 flex items-center gap-4 px-4 h-14 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
@@ -33,24 +33,24 @@ export default function Home() {
         </a>
       </header>
 
-      {/* Compute bar — shown only when model is loaded */}
+      {/* Compute bar - shown only when model is loaded */}
       <ComputeBar />
 
       {/* Three-panel layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Graph panel — center / largest */}
+        {/* Graph panel - center / largest */}
         <main className="flex-1 flex overflow-hidden">
           <ArchGraphClient />
         </main>
 
-        {/* Right side panels — draggable to expand leftward */}
+        {/* Right side panels - draggable to expand leftward */}
         <ResizablePanel>
-          {/* Detail panel — top half */}
+          {/* Detail panel - top half */}
           <div className="flex-1 overflow-hidden border-b border-slate-800">
             <DetailPanel />
           </div>
 
-          {/* Chat panel — bottom half */}
+          {/* Chat panel - bottom half */}
           <div className="flex-1 overflow-hidden">
             <ChatPanel />
           </div>

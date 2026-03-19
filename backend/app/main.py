@@ -1,5 +1,5 @@
 """
-ModelVerse Backend — FastAPI application.
+ModelVerse Backend - FastAPI application.
 
 Run with: uv run fastapi dev app/main.py
 """
@@ -50,7 +50,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow the Next.js frontend (and localhost for dev)
+# CORS - allow the Next.js frontend (and localhost for dev)
 _allowed_origins = [
     "http://localhost:3000",
     "https://modelverse.vercel.app",
@@ -99,7 +99,7 @@ async def resolve_model(req: ResolveRequest):
 async def compute_stats(req: ComputeRequest):
     """
     Compute parameter counts, FLOPs per token, and memory for an Architecture IR.
-    Pure arithmetic — runs in <1ms.
+    Pure arithmetic - runs in <1ms.
     """
     try:
         stats = estimate_compute(req.ir)

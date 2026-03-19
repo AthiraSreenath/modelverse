@@ -1,5 +1,5 @@
 """
-LLM Brain — streaming chat with tool calling.
+LLM Brain - streaming chat with tool calling.
 
 Provider detection order:
   1. ANTHROPIC_API_KEY  → Claude Sonnet
@@ -101,12 +101,12 @@ _ANTHROPIC_TOOLS = [
                     "type": "object",
                     "description": (
                         "Edit specification. Required field: op. "
-                        "op='set_repeat': change layer count — {op, target, value}. "
-                        "op='set_param': change one param — {op, target, key, value}. "
-                        "op='remove_block': delete a block — {op, target}. "
-                        "op='replace_block': swap a block for a new one (use for type changes like FFN→MoE) — "
+                        "op='set_repeat': change layer count - {op, target, value}. "
+                        "op='set_param': change one param - {op, target, key, value}. "
+                        "op='remove_block': delete a block - {op, target}. "
+                        "op='replace_block': swap a block for a new one (use for type changes like FFN→MoE) - "
                         "{op, target, block: {id, label, type, params, repeat}}. "
-                        "op='add_block': insert a new block — {op, block: {...}, after: <existing_block_id>}. "
+                        "op='add_block': insert a new block - {op, block: {...}, after: <existing_block_id>}. "
                         "Examples:\n"
                         '  {"op":"set_repeat","target":"encoder","value":6}\n'
                         '  {"op":"set_param","target":"self_attn","key":"num_heads","value":8}\n'
@@ -135,7 +135,7 @@ _ANTHROPIC_TOOLS = [
     },
 ]
 
-# OpenAI format — same content, different wrapper
+# OpenAI format - same content, different wrapper
 _OPENAI_TOOLS = [
     {
         "type": "function",
@@ -185,7 +185,7 @@ You can:
 - Estimate the compute impact of changes using estimate_compute
 - Look up other models for comparison using search_huggingface
 
-IMPORTANT — when calling apply_edit:
+IMPORTANT - when calling apply_edit:
 - Use ONLY block IDs listed above. Never invent IDs.
 - To change the number of layers/blocks, use op="set_repeat" with the transformer_stack block ID.
 - To convert a feed-forward block to MoE, use op="replace_block" with type="moe_feed_forward".
@@ -204,8 +204,8 @@ Valid block types and their key params:
 
 Guidelines:
 - Be concise. Cite parameter counts and dimensions when relevant.
-- When asked about compute impact, call estimate_compute — don't calculate manually.
-- When asked to edit the architecture, always call apply_edit — don't just describe the edit in text.
+- When asked about compute impact, call estimate_compute - don't calculate manually.
+- When asked to edit the architecture, always call apply_edit - don't just describe the edit in text.
 - After a successful apply_edit, summarise what changed using the compute_delta in the tool result.
 """
 
@@ -220,10 +220,10 @@ async def _dispatch_tool(
         elif tool_name == "search_web":
             return await tool_search_web(**tool_input)
         elif tool_name == "estimate_compute":
-            # IR injected by backend — LLM doesn't need to pass it
+            # IR injected by backend - LLM doesn't need to pass it
             return tool_estimate_compute(ir=current_ir.model_dump())
         elif tool_name == "apply_edit":
-            # IR injected by backend — LLM only sends edit_spec
+            # IR injected by backend - LLM only sends edit_spec
             return tool_apply_edit(
                 ir=current_ir.model_dump(),
                 edit_spec=tool_input.get("edit_spec", tool_input),

@@ -3,7 +3,7 @@
 # ModelVerse
 
 ### The open-source architecture explorer for ML models.
-### Type a name. See every layer. Ask questions. Edit and see the impact — instantly.
+### Type a name. See every layer. Ask questions. Edit and see the impact - instantly.
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
@@ -16,13 +16,13 @@
 
 ---
 
-Most ML tools make you download weights, run scripts, or dig through config files just to answer a basic question — *"how big is this model?"* or *"what does this layer actually do?"*
+Most ML tools make you download weights, run scripts, or dig through config files just to answer a basic question - *"how big is this model?"* or *"what does this layer actually do?"*
 
-ModelVerse skips all of that. Type a model name from HuggingFace and it fetches only the `config.json` — a few kilobytes — and builds a full interactive architecture diagram from it. No weights. No setup. Results in seconds.
+ModelVerse skips all of that. Type a model name from HuggingFace and it fetches only the `config.json` - a few kilobytes - and builds a full interactive architecture diagram from it. No weights. No setup. Results in seconds.
 
 From there you can click into any layer to understand it, hover to see the exact parameter formula, or just ask the chat: *"what happens if I reduce the number of layers to 6?"* The LLM applies the change, highlights what moved in the graph, and shows you the exact parameter and memory delta.
 
-It's aimed at ML engineers who want to quickly understand a model before using it, researchers exploring architecture tradeoffs, and students learning how transformers actually work — without needing to read the source code.
+It's aimed at ML engineers who want to quickly understand a model before using it, researchers exploring architecture tradeoffs, and students learning how transformers actually work - without needing to read the source code.
 
 ---
 
@@ -32,7 +32,7 @@ It's aimed at ML engineers who want to quickly understand a model before using i
 |                             |                                                                                               |
 | --------------------------- | --------------------------------------------------------------------------------------------- |
 | 🗺️ **Interactive graph**   | Every layer as a clickable node. Transformer stacks expand to show attention, FFN, and norms. |
-| 📐 **Compute stats**        | Parameters, memory (fp16/int4), and FLOPs per token — always visible, always up to date.      |
+| 📐 **Compute stats**        | Parameters, memory (fp16/int4), and FLOPs per token - always visible, always up to date.      |
 | 🔍 **Layer inspector**      | Click any node to see what it does, how its parameters are calculated, and its exact config.  |
 | 💬 **LLM chat**             | Ask anything about the architecture in plain English. Powered by Claude or GPT-4o.            |
 | ✏️ **Architecture editing** | Tell the chat to change the model. See which nodes changed and the exact compute delta.       |
@@ -81,7 +81,7 @@ You type:  bert-base-uncased
 
 **Any other HuggingFace model:**
 
-Type the model ID exactly as it appears on HuggingFace (`owner/model-name`). ModelVerse fetches only the `config.json` — never the weights — and builds the full architecture from it.
+Type the model ID exactly as it appears on HuggingFace (`owner/model-name`). ModelVerse fetches only the `config.json` - never the weights - and builds the full architecture from it.
 
 > Works with BERT, GPT-2, LLaMA, Mistral, Mixtral, T5, Mamba, DeBERTa, ELECTRA, Falcon, OLMo, Cohere, and more.
 
@@ -96,7 +96,7 @@ git clone https://github.com/AthiraSreenath/modelverse
 cd modelverse
 ```
 
-**Step 1 — Create your env files and add your keys**
+**Step 1 - Create your env files and add your keys**
 
 ```bash
 cp backend/.env.example backend/.env
@@ -111,7 +111,7 @@ ANTHROPIC_API_KEY=sk-ant-...    # → console.anthropic.com
 OPENAI_API_KEY=sk-...           # → platform.openai.com/api-keys
 ```
 
-Anthropic is used if both are set; OpenAI is the fallback. The graph, compute stats, and layer inspector work without any key — you only need one for the chat panel.
+Anthropic is used if both are set; OpenAI is the fallback. The graph, compute stats, and layer inspector work without any key - you only need one for the chat panel.
 
 Optionally add a HuggingFace token (free, lifts API rate limits):
 
@@ -123,7 +123,7 @@ HF_TOKEN=hf_...    # → huggingface.co/settings/tokens
 
 ---
 
-**Step 2 — Start the backend** *(Terminal 1)*
+**Step 2 - Start the backend** *(Terminal 1)*
 
 ```bash
 cd backend
@@ -132,7 +132,7 @@ uv run fastapi dev app/main.py
 # → http://localhost:8000
 ```
 
-**Step 3 — Start the frontend** *(Terminal 2)*
+**Step 3 - Start the frontend** *(Terminal 2)*
 
 ```bash
 cd frontend
@@ -150,18 +150,18 @@ Open **[http://localhost:3000](http://localhost:3000)** and type `bert-base-unca
 ```
 Phase 1  ████████████████  ✅ Now       HuggingFace models by name
 Phase 2  ░░░░░░░░░░░░░░░░  🔜 Next      File upload (.safetensors, .onnx, .gguf, .pt)
-Phase 3  ░░░░░░░░░░░░░░░░  🔜 Later     Any model — agentic web + ArXiv search
+Phase 3  ░░░░░░░░░░░░░░░░  🔜 Later     Any model - agentic web + ArXiv search
 Phase 4  ░░░░░░░░░░░░░░░░  🔜 Future    Side-by-side comparison + playground + export
 ```
 
-**Phase 2 — File Upload**
-Upload a local model file. ModelVerse reads only the header (tensor names and shapes) — never the weights — and renders the full architecture. Supports `.safetensors`, `.onnx`, `.gguf`, `.pt`.
+**Phase 2 - File Upload**
+Upload a local model file. ModelVerse reads only the header (tensor names and shapes) - never the weights - and renders the full architecture. Supports `.safetensors`, `.onnx`, `.gguf`, `.pt`.
 
-**Phase 3 — Any Model (Agentic Discovery)**
-Type any model name — `GPT-3`, `"the original 2017 Transformer"`, `AlexNet`. The LLM brain searches HuggingFace, ArXiv, and the web, synthesizes the architecture from whatever evidence it finds, and shows confidence levels for each part.
+**Phase 3 - Any Model (Agentic Discovery)**
+Type any model name - `GPT-3`, `"the original 2017 Transformer"`, `AlexNet`. The LLM brain searches HuggingFace, ArXiv, and the web, synthesizes the architecture from whatever evidence it finds, and shows confidence levels for each part.
 
-**Phase 4 — Comparison + Playground + Export**
-Load two models side by side. See exactly what changed — layer by layer, parameter by parameter. Export architectures as JSON, SVG, or directly to PyTorch code.
+**Phase 4 - Comparison + Playground + Export**
+Load two models side by side. See exactly what changed - layer by layer, parameter by parameter. Export architectures as JSON, SVG, or directly to PyTorch code.
 
 **LLM provider roadmap**
 
@@ -169,13 +169,13 @@ Load two models side by side. See exactly what changed — layer by layer, param
 |---|---|
 | Anthropic Claude Sonnet | ✅ Supported |
 | OpenAI GPT-4o | ✅ Supported |
-| Ollama (local LLMs) | 🔜 Planned — run the chat entirely on your own machine, no API key needed |
+| Ollama (local LLMs) | 🔜 Planned - run the chat entirely on your own machine, no API key needed |
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) — architecture overview, how to add a model family parser, how to add a pre-baked model, and the PR process.
+See [CONTRIBUTING.md](CONTRIBUTING.md) - architecture overview, how to add a model family parser, how to add a pre-baked model, and the PR process.
 
 ## License
 

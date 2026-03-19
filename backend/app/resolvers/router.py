@@ -1,5 +1,5 @@
 """
-Input resolver — detects input type and routes to the right fetcher.
+Input resolver - detects input type and routes to the right fetcher.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ async def resolve(
             )
         except HFConfigNotFoundError as e:
             logger.info("HF lookup failed for '%s': %s", text, e)
-            # Fall through — caller should try LLM / web search for Phase 3
+            # Fall through - caller should try LLM / web search for Phase 3
 
     # --- Not found ---
     raise ValueError(

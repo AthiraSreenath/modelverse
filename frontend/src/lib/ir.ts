@@ -1,5 +1,5 @@
 /**
- * Architecture IR — TypeScript types.
+ * Architecture IR - TypeScript types.
  * Mirrors the Pydantic models in backend/app/models/ir.py exactly.
  */
 

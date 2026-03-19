@@ -1,6 +1,6 @@
 /**
  * Backend API client.
- * All calls go through this module — never call fetch directly.
+ * All calls go through this module - never call fetch directly.
  */
 
 import type {
@@ -94,7 +94,7 @@ export async function* streamChat(
       try {
         yield JSON.parse(json);
       } catch {
-        // malformed line — skip
+        // malformed line - skip
       }
     }
   }

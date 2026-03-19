@@ -1,5 +1,5 @@
 """
-Architecture IR — Pydantic models for the unified Architecture Intermediate Representation.
+Architecture IR - Pydantic models for the unified Architecture Intermediate Representation.
 
 Every input (HF model name, uploaded file, web search) resolves to this schema.
 Every output (graph, compute stats, LLM context, diffs) is generated from it.
@@ -19,9 +19,9 @@ from pydantic import BaseModel, Field
 
 
 class SourceType(str, Enum):
-    HF_CONFIG = "hf_config"          # Parsed directly from HuggingFace config.json — exact
-    FILE_HEADER = "file_header"       # Parsed from uploaded file header — exact
-    PREBAKED = "prebaked"             # Shipped pre-baked IR — exact
+    HF_CONFIG = "hf_config"          # Parsed directly from HuggingFace config.json - exact
+    FILE_HEADER = "file_header"       # Parsed from uploaded file header - exact
+    PREBAKED = "prebaked"             # Shipped pre-baked IR - exact
     PAPER = "paper"                   # Extracted from ArXiv / published paper
     WEB_SYNTHESIS = "web_synthesis"   # Synthesized from multiple web sources
     LLM_KNOWLEDGE = "llm_knowledge"   # From LLM training data alone
@@ -68,7 +68,7 @@ class ActivationType(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Block parameter models — typed params per block type
+# Block parameter models - typed params per block type
 # ---------------------------------------------------------------------------
 
 

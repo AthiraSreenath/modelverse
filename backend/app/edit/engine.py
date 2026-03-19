@@ -45,7 +45,7 @@ def _build_moe_children(block: ArchBlock) -> list[ArchBlock]:
             notes=(
                 f"First step inside MoE. Linear({h} → {num_experts}) + softmax. "
                 f"Produces a score for every one of the {num_experts} experts. "
-                f"No expert computation happens here — only routing decisions."
+                f"No expert computation happens here - only routing decisions."
             ),
         ),
         ArchBlock(
@@ -55,7 +55,7 @@ def _build_moe_children(block: ArchBlock) -> list[ArchBlock]:
             params={},
             notes=(
                 f"Picks the {top_k} highest-scored experts from the router output. "
-                f"The remaining {num_experts - top_k} experts are skipped entirely for this token — "
+                f"The remaining {num_experts - top_k} experts are skipped entirely for this token - "
                 f"zero compute, zero memory access. This is the sparse activation that makes MoE efficient."
             ),
         ),
@@ -83,7 +83,7 @@ def _build_moe_children(block: ArchBlock) -> list[ArchBlock]:
                 f"output = Σ gate_i × expert_i(x)  for i in top-{top_k} selected experts. "
                 f"gate_i = softmax(router_score_i) renormalised over selected experts only. "
                 f"This output is then added back to the block input via a residual connection "
-                f"(x + MoE_output) before the following LayerNorm — the skip connection is "
+                f"(x + MoE_output) before the following LayerNorm - the skip connection is "
                 f"part of the surrounding transformer block, not inside MoE."
             ),
         ),

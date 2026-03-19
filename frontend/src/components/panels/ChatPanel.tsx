@@ -118,7 +118,7 @@ export default function ChatPanel() {
                 error?: string;
               };
               if (result.new_ir) {
-                // Successful edit — update the graph immediately
+                // Successful edit - update the graph immediately
                 editResult = result as import("@/lib/ir").EditResult;
                 const newIR = result.new_ir as import("@/lib/ir").ArchitectureIR;
                 const diff = (result.diff ?? []) as import("@/lib/ir").DiffEntry[];

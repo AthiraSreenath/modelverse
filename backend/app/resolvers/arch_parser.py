@@ -1,5 +1,5 @@
 """
-Architecture Parser — converts a raw HuggingFace config dict into an Architecture IR.
+Architecture Parser - converts a raw HuggingFace config dict into an Architecture IR.
 
 Supports: BERT, DistilBERT, RoBERTa, GPT-2, LLaMA, Mistral, Mixtral, T5, Mamba, Falcon.
 """
@@ -218,13 +218,13 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
                   params={"hidden_size": d_model, "num_heads": num_heads, "head_dim": d_kv,
                           "attention_type": "multi_head", "is_causal": False},
                   param_count=4 * d_model * (num_heads * d_kv)),
-        _add_block("add_attn", "h = x + Attention(LN(x))  — residual 1 (T5 Pre-LN style)."),
+        _add_block("add_attn", "h = x + Attention(LN(x))  - residual 1 (T5 Pre-LN style)."),
         ArchBlock(id="layer_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
                   params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
         ArchBlock(id="ffn", label="FFN", type=BlockType.FEED_FORWARD,
                   params={"hidden_size": d_model, "intermediate_size": d_ff, "activation": act.value},
                   param_count=2 * d_model * d_ff),
-        _add_block("add_ffn", "h = h + FFN(LN(h))  — residual 2 (T5 Pre-LN style)."),
+        _add_block("add_ffn", "h = h + FFN(LN(h))  - residual 2 (T5 Pre-LN style)."),
         ArchBlock(id="ffn_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
                   params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
     ]
@@ -239,18 +239,18 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
                   params={"hidden_size": d_model, "num_heads": num_heads, "head_dim": d_kv,
                           "attention_type": "multi_head", "is_causal": True},
                   param_count=4 * d_model * (num_heads * d_kv)),
-        _add_block("add_self_attn", "h = x + SelfAttention(LN(x))  — residual 1 (T5 decoder)."),
+        _add_block("add_self_attn", "h = x + SelfAttention(LN(x))  - residual 1 (T5 decoder)."),
         ArchBlock(id="cross_attn", label="Cross-Attention", type=BlockType.MULTI_HEAD_ATTENTION,
                   params={"hidden_size": d_model, "num_heads": num_heads, "head_dim": d_kv,
                           "attention_type": "multi_head", "is_causal": False},
                   param_count=4 * d_model * (num_heads * d_kv)),
-        _add_block("add_cross_attn", "h = h + CrossAttention(LN(h), encoder_output)  — residual 2 (T5 decoder)."),
+        _add_block("add_cross_attn", "h = h + CrossAttention(LN(h), encoder_output)  - residual 2 (T5 decoder)."),
         ArchBlock(id="layer_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
                   params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
         ArchBlock(id="ffn", label="FFN", type=BlockType.FEED_FORWARD,
                   params={"hidden_size": d_model, "intermediate_size": d_ff, "activation": act.value},
                   param_count=2 * d_model * d_ff),
-        _add_block("add_ffn", "h = h + FFN(LN(h))  — residual 3 (T5 decoder)."),
+        _add_block("add_ffn", "h = h + FFN(LN(h))  - residual 3 (T5 decoder)."),
         ArchBlock(id="ffn_norm", label="LayerNorm", type=BlockType.LAYER_NORM,
                   params={"normalized_shape": d_model, "norm_type": "layer_norm"}, param_count=d_model),
     ]
@@ -282,7 +282,7 @@ def _parse_t5_family(config: dict, model_id: str) -> ArchitectureIR:
 
 
 def _parse_mamba_family(config: dict, model_id: str) -> ArchitectureIR:
-    """Handles Mamba (state space model — no attention)."""
+    """Handles Mamba (state space model - no attention)."""
     d_model = config.get("d_model", 2560)
     n_layer = config.get("n_layer", 64)
     vocab_size = config.get("vocab_size", 50280)
@@ -437,10 +437,10 @@ def _parse_llama_family(config: dict, model_id: str) -> ArchitectureIR:
     children = [
         input_norm,
         attn_block,
-        _add_block("add_attn", "h = x + Attention(RMSNorm(x))  — residual 1 (Pre-LN: Add after attention, before next norm)."),
+        _add_block("add_attn", "h = x + Attention(RMSNorm(x))  - residual 1 (Pre-LN: Add after attention, before next norm)."),
         post_norm,
         ffn_block,
-        _add_block("add_ffn", "h = h + FFN(RMSNorm(h))  — residual 2 (Pre-LN: Add after FFN)."),
+        _add_block("add_ffn", "h = h + FFN(RMSNorm(h))  - residual 2 (Pre-LN: Add after FFN)."),
     ]
 
     decoder_block = ArchBlock(
@@ -532,13 +532,13 @@ def _build_encoder_children(
                       params={"hidden_size": h, "num_heads": num_heads, "head_dim": h // num_heads,
                               "attention_type": "multi_head", "is_causal": is_causal},
                       param_count=4 * h * h),
-            _add_block("add_attn", "h = x + Attention(LN(x))  — residual reconnects the pre-LN input after attention."),
+            _add_block("add_attn", "h = x + Attention(LN(x))  - residual reconnects the pre-LN input after attention."),
             ArchBlock(id="ln_2", label="LayerNorm", type=BlockType.LAYER_NORM,
                       params={"normalized_shape": h, "norm_type": "layer_norm"}, param_count=h * 2),
             ArchBlock(id="mlp", label="MLP", type=BlockType.FEED_FORWARD,
                       params={"hidden_size": h, "intermediate_size": intermediate, "activation": act.value},
                       param_count=2 * h * intermediate + h + intermediate),
-            _add_block("add_ffn", "h = h + FFN(LN(h))  — second residual reconnects input after the feed-forward block."),
+            _add_block("add_ffn", "h = h + FFN(LN(h))  - second residual reconnects input after the feed-forward block."),
         ]
     else:
         # BERT / Post-LN style: sublayer → Add (residual) → LN
@@ -547,13 +547,13 @@ def _build_encoder_children(
                       params={"hidden_size": h, "num_heads": num_heads, "head_dim": h // num_heads,
                               "attention_type": "multi_head", "is_causal": is_causal},
                       param_count=4 * h * h),
-            _add_block("add_attn", "h = x + Attention(x)  — residual 1 (Post-LN: Add before LayerNorm)."),
+            _add_block("add_attn", "h = x + Attention(x)  - residual 1 (Post-LN: Add before LayerNorm)."),
             ArchBlock(id="attn_layernorm", label="LayerNorm", type=BlockType.LAYER_NORM,
                       params={"normalized_shape": h, "norm_type": "layer_norm"}, param_count=h * 2),
             ArchBlock(id="ffn", label="Feed-Forward", type=BlockType.FEED_FORWARD,
                       params={"hidden_size": h, "intermediate_size": intermediate, "activation": act.value},
                       param_count=2 * h * intermediate + h + intermediate),
-            _add_block("add_ffn", "h = h + FFN(h)  — residual 2 (Post-LN: Add before LayerNorm)."),
+            _add_block("add_ffn", "h = h + FFN(h)  - residual 2 (Post-LN: Add before LayerNorm)."),
             ArchBlock(id="ffn_layernorm", label="LayerNorm", type=BlockType.LAYER_NORM,
                       params={"normalized_shape": h, "norm_type": "layer_norm"}, param_count=h * 2),
         ]
@@ -691,7 +691,7 @@ def parse_hf_config(config: dict, model_id: str) -> ArchitectureIR:
     parser_fn = _FAMILY_PARSERS.get(model_type)
 
     if parser_fn is None:
-        logger.warning("Unknown model_type '%s' for '%s' — using generic fallback", model_type, model_id)
+        logger.warning("Unknown model_type '%s' for '%s' - using generic fallback", model_type, model_id)
         return _generic_fallback(config, model_id)
 
     return parser_fn(config, model_id)

@@ -22,7 +22,7 @@ Thanks for your interest in contributing. This guide covers everything you need 
 
 ## 1. Architecture overview
 
-Every input (model name, uploaded file, natural language) resolves into a single **Architecture IR** — a JSON schema that represents the model's structure. Every output (the graph, compute stats, LLM context, edit diffs) is generated from that IR.
+Every input (model name, uploaded file, natural language) resolves into a single **Architecture IR** - a JSON schema that represents the model's structure. Every output (the graph, compute stats, LLM context, edit diffs) is generated from that IR.
 
 ```
 User input
@@ -44,8 +44,8 @@ For the full design rationale, IR schema, and API contracts: [docs/design_doc.md
 
 ## 2. Prerequisites
 
-- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- **[Node.js 20+](https://nodejs.org)** — for the Next.js frontend
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** - Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- **[Node.js 20+](https://nodejs.org)** - for the Next.js frontend
 - **[git](https://git-scm.com)**
 - An **Anthropic API key** (or OpenAI) for the LLM chat feature
 
@@ -98,12 +98,12 @@ modelverse/
 
 Key files to know:
 
-- `backend/app/models/ir.py` — the canonical Architecture IR schema (Pydantic). Everything flows through this.
-- `backend/app/resolvers/arch_parser.py` — HF config → IR. Add new model families here.
-- `backend/app/llm/brain.py` — LLM streaming chat + tool loop.
-- `frontend/src/lib/ir.ts` — TypeScript mirror of the IR schema.
-- `frontend/src/lib/store.ts` — Zustand store (IR, chat history, undo stack).
-- `frontend/src/components/graph/` — React Flow graph, node types, layout.
+- `backend/app/models/ir.py` - the canonical Architecture IR schema (Pydantic). Everything flows through this.
+- `backend/app/resolvers/arch_parser.py` - HF config → IR. Add new model families here.
+- `backend/app/llm/brain.py` - LLM streaming chat + tool loop.
+- `frontend/src/lib/ir.ts` - TypeScript mirror of the IR schema.
+- `frontend/src/lib/store.ts` - Zustand store (IR, chat history, undo stack).
+- `frontend/src/components/graph/` - React Flow graph, node types, layout.
 
 ---
 
@@ -116,7 +116,7 @@ Key files to know:
 | -------------------- | -------- | --------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY`  | Yes*     | Powers the LLM chat (Claude Sonnet)                                   |
 | `OPENAI_API_KEY`     | Yes*     | Alternative LLM (GPT-4o)                                              |
-| `HF_TOKEN`           | No       | HuggingFace token — raises API rate limits from ~100/day to ~1000/day |
+| `HF_TOKEN`           | No       | HuggingFace token - raises API rate limits from ~100/day to ~1000/day |
 | `EXTRA_CORS_ORIGINS` | No       | Comma-separated list of additional allowed CORS origins               |
 
 
@@ -236,7 +236,7 @@ class MyFormatParser:
     @staticmethod
     async def open(stream) -> ArchitectureIR:
         """Parse the stream and return an Architecture IR.
-        Read header/metadata only — never load weights."""
+        Read header/metadata only - never load weights."""
         ...
 ```
 
@@ -288,7 +288,7 @@ Set `NEXT_PUBLIC_BACKEND_URL` to your Railway backend URL in the Vercel dashboar
 
 1. Connect your GitHub repo at [railway.app](https://railway.app)
 2. Set **Root Directory** to `/backend`
-3. Railway auto-detects Python via Nixpacks — no Dockerfile needed
+3. Railway auto-detects Python via Nixpacks - no Dockerfile needed
 4. Add environment variables: `ANTHROPIC_API_KEY/`, `HF_TOKEN`
 5. Deploy triggers automatically on push to `main`
 
@@ -299,10 +299,10 @@ The start command Railway uses: `fastapi run app/main.py --host 0.0.0.0 --port $
 ## 11. Pull request guide
 
 - **Open an issue first** for anything non-trivial so we can discuss direction before you write code
-- Keep PRs focused — one feature or fix per PR
+- Keep PRs focused - one feature or fix per PR
 - All pre-baked IRs must have accurate `compute` stats (verify with `test_prebaked.py`)
 - Family parsers must pass `test_arch_parser.py` before merging
-- Follow the existing code style — the backend uses standard Python type hints throughout
+- Follow the existing code style - the backend uses standard Python type hints throughout
 
 **Good first contributions:**
 

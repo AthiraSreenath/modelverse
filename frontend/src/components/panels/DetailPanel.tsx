@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 const TYPE_DESCRIPTIONS: Record<string, string> = {
   embedding:
-    "Maps discrete token IDs to dense vectors. The vocabulary embedding is the first layer in every transformer — it determines the initial representation of each token.",
+    "Maps discrete token IDs to dense vectors. The vocabulary embedding is the first layer in every transformer - it determines the initial representation of each token.",
   multi_head_attention:
     "Allows the model to attend to different parts of the sequence simultaneously. Multiple attention heads let the model capture different types of relationships in parallel.",
   feed_forward:

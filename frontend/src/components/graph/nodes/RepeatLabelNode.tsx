@@ -28,7 +28,7 @@ function RepeatLabelNode({ data }: NodeProps<RepeatLabelNodeType>) {
         </span>
       </div>
 
-      {/* Bracket — vertical line on right side, serifs pointing left toward the nodes */}
+      {/* Bracket - vertical line on right side, serifs pointing left toward the nodes */}
       <div className="relative flex-shrink-0" style={{ height: heightPx, width: 10 }}>
         {/* Top serif */}
         <div className="absolute top-0 right-0 w-2.5 h-px bg-slate-600" />

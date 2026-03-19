@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ModelVerse — Understand any ML model",
+  title: "ModelVerse - Understand any ML model",
   description:
     "Visualize, explore, and edit neural network architectures. Just type a model name.",
 };

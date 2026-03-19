@@ -1,6 +1,6 @@
 """
 HuggingFace config.json fetcher.
-Downloads ONLY config.json — never model weights.
+Downloads ONLY config.json - never model weights.
 """
 
 import json
@@ -56,7 +56,7 @@ async def fetch_model_card(model_id: str, hf_token: str | None = None) -> str | 
 
 
 def model_exists_on_hf(model_id: str, hf_token: str | None = None) -> bool:
-    """Quick check — does this repo exist on HF?"""
+    """Quick check - does this repo exist on HF?"""
     try:
         api = HfApi(token=hf_token)
         api.repo_info(model_id)

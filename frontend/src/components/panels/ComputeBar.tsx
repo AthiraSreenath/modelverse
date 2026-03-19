@@ -21,13 +21,13 @@ export default function ComputeBar() {
     {
       icon: <MemoryStick className="w-3.5 h-3.5" />,
       label: "Memory (fp16)",
-      value: c.memory_fp16_gb != null ? formatBytes(c.memory_fp16_gb) : "—",
+      value: c.memory_fp16_gb != null ? formatBytes(c.memory_fp16_gb) : "-",
       sub: c.memory_int4_gb != null ? `${formatBytes(c.memory_int4_gb)} @ int4` : "",
     },
     {
       icon: <Zap className="w-3.5 h-3.5" />,
       label: "FLOPs",
-      value: c.flops_per_token != null ? formatFlops(c.flops_per_token) : "—",
+      value: c.flops_per_token != null ? formatFlops(c.flops_per_token) : "-",
       sub: "",
     },
   ];
@@ -54,7 +54,7 @@ export default function ComputeBar() {
           </div>
         </div>
       ))}
-      {/* Task head switcher — only renders for encoder-only models */}
+      {/* Task head switcher - only renders for encoder-only models */}
       <div className="ml-auto">
         <TaskSwitcher />
       </div>

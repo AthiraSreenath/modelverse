@@ -1,5 +1,5 @@
 /**
- * Zustand store — global client state for ModelVerse.
+ * Zustand store - global client state for ModelVerse.
  */
 
 import { create } from "zustand";
@@ -30,7 +30,7 @@ interface ModelVerseState {
   expandedBlockIds: Set<string>;
   toggleBlockExpanded: (id: string) => void;
 
-  // Latest diff (from an edit) — used to highlight changed nodes
+  // Latest diff (from an edit) - used to highlight changed nodes
   latestDiff: DiffEntry[];
   setLatestDiff: (diff: DiffEntry[]) => void;
   clearDiff: () => void;
