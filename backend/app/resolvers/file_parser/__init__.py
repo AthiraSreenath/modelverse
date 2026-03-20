@@ -5,12 +5,14 @@ Supported formats (zero extra dependencies):
   .safetensors   SafeTensors header-only parse (reads <1KB, never loads weights)
   .gguf          GGUF metadata-header parse (llama.cpp format, skips tensor data)
   .json          HuggingFace config.json passthrough
-  .bin/.pt/.pth  PyTorch state-dict shape inference via torch (if installed) or
-                 a limited pickle-header scan
+  .bin/.pt/.pth  PyTorch state-dict shape inference via torch (if installed)
+  .onnx          ONNX protobuf graph parse — extracts initializer names/shapes
+                 using the `onnx` package if available, else a lightweight
+                 protobuf field scanner (no deps)
 
 Architecture inference priority:
   1. GGUF  → metadata keys contain the full config directly
-  2. SafeTensors / PyTorch → tensor name + shape → reconstruct pseudo config.json
+  2. SafeTensors / PyTorch / ONNX → tensor name + shape → reconstruct pseudo config.json
   3. config.json → pass straight through to arch_parser
 """
 
@@ -32,7 +34,7 @@ from ...models.ir import SourceType, SourceConfidence
 # ---------------------------------------------------------------------------
 
 SUPPORTED_EXTENSIONS = frozenset({
-    ".safetensors", ".gguf", ".json", ".bin", ".pt", ".pth"
+    ".safetensors", ".gguf", ".json", ".bin", ".pt", ".pth", ".onnx"
 })
 
 
@@ -62,6 +64,8 @@ def parse_uploaded_file(data: bytes, filename: str) -> dict:
             )
     elif ext in (".bin", ".pt", ".pth"):
         config = _parse_pytorch(data, stem)
+    elif ext == ".onnx":
+        config = _parse_onnx(data, stem)
     else:
         exts = ", ".join(sorted(SUPPORTED_EXTENSIONS))
         raise ValueError(
@@ -396,6 +400,159 @@ def _parse_pytorch(data: bytes, stem: str) -> dict:
         "(`safetensors.torch.save_file(state_dict, 'model.safetensors')`), "
         "or upload the model's config.json directly."
     )
+
+
+# ---------------------------------------------------------------------------
+# ONNX parser
+# ---------------------------------------------------------------------------
+
+# ONNX protobuf field numbers we care about (ModelProto / GraphProto / TensorProto)
+# ModelProto:  field 7 = graph (GraphProto)
+# GraphProto:  field 1 = node (NodeProto), field 4 = initializer (TensorProto)
+# TensorProto: field 1 = dims (int64[]), field 3 = name (string)
+# NodeProto:   field 4 = op_type (string), field 6 = attribute (AttributeProto)
+
+def _proto_read_varint(data: bytes, pos: int) -> tuple[int, int]:
+    """Decode a protobuf varint starting at pos. Returns (value, new_pos)."""
+    result, shift = 0, 0
+    while pos < len(data):
+        b = data[pos]; pos += 1
+        result |= (b & 0x7F) << shift
+        if not (b & 0x80):
+            return result, pos
+        shift += 7
+    raise ValueError("Truncated varint in protobuf")
+
+
+def _proto_skip_field(data: bytes, pos: int, wire: int) -> int:
+    """Skip a single protobuf field value starting at pos."""
+    if wire == 0:    # varint
+        _, pos = _proto_read_varint(data, pos)
+    elif wire == 1:  # 64-bit
+        pos += 8
+    elif wire == 2:  # length-delimited
+        length, pos = _proto_read_varint(data, pos)
+        pos += length
+    elif wire == 5:  # 32-bit
+        pos += 4
+    else:
+        raise ValueError(f"Unknown protobuf wire type {wire}")
+    return pos
+
+
+def _proto_iter_fields(data: bytes, start: int, end: int):
+    """Yield (field_number, wire_type, payload_start, payload_end) for each field."""
+    pos = start
+    while pos < end:
+        tag, pos = _proto_read_varint(data, pos)
+        field_num = tag >> 3
+        wire      = tag & 0x07
+        if wire == 2:  # length-delimited — most useful fields
+            length, pos = _proto_read_varint(data, pos)
+            yield field_num, wire, pos, pos + length
+            pos += length
+        else:
+            payload_start = pos
+            pos = _proto_skip_field(data, pos, wire)
+            yield field_num, wire, payload_start, pos
+
+
+def _onnx_parse_tensor_proto(data: bytes, start: int, end: int) -> tuple[str, list[int]]:
+    """Extract (name, dims) from a TensorProto message slice."""
+    name = ""
+    dims: list[int] = []
+    for fnum, wire, ps, pe in _proto_iter_fields(data, start, end):
+        if fnum == 1 and wire == 0:   # dims (repeated int64, but stored as varints)
+            val, _ = _proto_read_varint(data, ps)
+            dims.append(val)
+        elif fnum == 1 and wire == 2:  # packed repeated dims
+            p = ps
+            while p < pe:
+                v, p = _proto_read_varint(data, p)
+                dims.append(v)
+        elif fnum == 3 and wire == 2:  # name
+            name = data[ps:pe].decode("utf-8", errors="replace")
+    return name, dims
+
+
+def _parse_onnx(data: bytes, stem: str) -> dict:
+    """
+    Parse an ONNX protobuf model.  Extracts weight initializer names + shapes
+    to reconstruct a pseudo config.json.  No deps required.
+
+    Strategy:
+      1. Try `import onnx` for a clean parse (if installed).
+      2. Fall back to a hand-rolled protobuf field scanner.
+    """
+    # --- Strategy 1: onnx package ---
+    try:
+        import onnx  # type: ignore
+        model = onnx.load_from_string(bytes(data))
+        shapes: dict[str, list[int]] = {}
+        for init in model.graph.initializer:
+            shapes[init.name] = list(init.dims)
+        if not shapes:
+            raise ValueError("ONNX model has no initializers (weights).")
+        return _infer_config_from_shapes(shapes, stem)
+    except ImportError:
+        pass
+    except Exception as e:
+        raise ValueError(f"Could not parse ONNX model: {e}") from e
+
+    # --- Strategy 2: lightweight protobuf scanner (no deps) ---
+    # Check magic: ONNX files start with protobuf — field 1 (ir_version) varint
+    # or field 7 (graph) length-delimited.  There's no fixed magic bytes,
+    # but valid ONNX is always a protobuf.
+    if len(data) < 4:
+        raise ValueError("File too small to be a valid ONNX model.")
+
+    try:
+        shapes = _onnx_scan_initializers(data)
+    except Exception as e:
+        raise ValueError(
+            f"Could not parse ONNX protobuf: {e}. "
+            "Install the `onnx` package for more reliable parsing: pip install onnx"
+        ) from e
+
+    if not shapes:
+        raise ValueError(
+            "No weight initializers found in ONNX file. "
+            "The model may be in a format that requires the `onnx` package to parse."
+        )
+    return _infer_config_from_shapes(shapes, stem)
+
+
+def _onnx_scan_initializers(data: bytes) -> dict[str, list[int]]:
+    """
+    Lightweight ONNX initializer scanner without the onnx package.
+
+    ModelProto structure:
+      field 7  (wire 2) = graph (GraphProto)
+        field 4 (wire 2) = initializer (TensorProto)
+          field 1 (wire 0 or 2) = dims
+          field 3 (wire 2)      = name
+    """
+    shapes: dict[str, list[int]] = {}
+
+    # Find the graph field (field 7) in the top-level ModelProto
+    graph_start = graph_end = -1
+    for fnum, wire, ps, pe in _proto_iter_fields(data, 0, len(data)):
+        if fnum == 7 and wire == 2:
+            graph_start, graph_end = ps, pe
+            break
+
+    if graph_start < 0:
+        # Might be a graph directly (some exporters skip ModelProto wrapper)
+        graph_start, graph_end = 0, len(data)
+
+    # Scan initializers (field 4) inside the graph
+    for fnum, wire, ps, pe in _proto_iter_fields(data, graph_start, graph_end):
+        if fnum == 4 and wire == 2:
+            name, dims = _onnx_parse_tensor_proto(data, ps, pe)
+            if name and dims:
+                shapes[name] = dims
+
+    return shapes
 
 
 # ---------------------------------------------------------------------------

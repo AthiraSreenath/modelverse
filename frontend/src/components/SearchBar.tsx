@@ -14,7 +14,7 @@ const PLACEHOLDER_CYCLE = [
   "gpt2",
 ];
 
-const SUPPORTED_EXTS = [".safetensors", ".gguf", ".json", ".bin", ".pt", ".pth"];
+const SUPPORTED_EXTS = [".safetensors", ".gguf", ".onnx", ".json", ".bin", ".pt", ".pth"];
 
 export default function SearchBar() {
   const {
