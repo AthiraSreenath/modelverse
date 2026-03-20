@@ -152,9 +152,9 @@ Open **[http://localhost:3000](http://localhost:3000)** and type `bert-base-unca
 ## Roadmap
 
 ```
-Phase 1  ████████████████  ✅ Now       HuggingFace models by name
-Phase 2  ░░░░░░░░░░░░░░░░  🔜 Next      File upload (.safetensors, .onnx, .gguf, .pt)
-Phase 3  ░░░░░░░░░░░░░░░░  🔜 Later     Any model - agentic web + ArXiv search
+Phase 1  ████████████████  ✅ Done       HuggingFace models by name
+Phase 2  ████████████████  ✅ Done       File upload (.safetensors, .onnx, .gguf, .pt)
+Phase 3  ░░░░░░░░░░░░░░░░  🔜 Next      Any model - agentic web + ArXiv search
 Phase 4  ░░░░░░░░░░░░░░░░  🔜 Future    Side-by-side comparison + playground + export
 ```
 
