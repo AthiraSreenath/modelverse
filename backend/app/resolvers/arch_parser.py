@@ -1076,47 +1076,295 @@ def parse_hf_config(config: dict, model_id: str) -> ArchitectureIR:
     parser_fn = _FAMILY_PARSERS.get(model_type)
 
     if parser_fn is None:
-        logger.warning("Unknown model_type '%s' for '%s' - using generic fallback", model_type, model_id)
-        return _generic_fallback(config, model_id)
+        logger.debug("Unknown model_type '%s' for '%s' - using smart generic fallback", model_type, model_id)
+        return _smart_generic_fallback(config, model_id)
 
     return parser_fn(config, model_id)
 
 
-def _generic_fallback(config: dict, model_id: str) -> ArchitectureIR:
-    """Best-effort parsing for unknown model types."""
-    h = config.get("hidden_size", config.get("d_model", 768))
-    num_layers = config.get("num_hidden_layers", config.get("num_layers", 12))
-    num_heads = config.get("num_attention_heads", config.get("num_heads", 12))
-    vocab_size = config.get("vocab_size", 30522)
-    max_pos = config.get("max_position_embeddings", 512)
+def _smart_generic_fallback(config: dict, model_id: str) -> ArchitectureIR:
+    """
+    Tier-2 auto-detecting parser for any unregistered model type.
+
+    Reads standard HuggingFace config fields and assembles an IR using the
+    same formulas as the explicit family parsers.  Covers ~90% of modern LLMs
+    without any hard-coded family knowledge.
+
+    Confidence levels:
+      HIGH   — all three key fields (hidden_size, num_hidden_layers,
+                num_attention_heads) are present and non-zero.
+      MEDIUM — one or two key fields are missing (values inferred from
+                common defaults).
+      LOW    — most fields are absent; result is a rough approximation.
+    """
     model_type = config.get("model_type", "unknown")
+    archs = config.get("architectures", [])
+    arch_str = " ".join(archs).lower()
+
+    # ── Core dimensions ────────────────────────────────────────────────────────
+    h = (
+        config.get("hidden_size")
+        or config.get("d_model")
+        or config.get("n_embd")
+        or config.get("model_dim")
+        or 0
+    )
+    num_layers = (
+        config.get("num_hidden_layers")
+        or config.get("n_layer")
+        or config.get("num_layers")
+        or config.get("n_layers")
+        or 0
+    )
+    num_heads = (
+        config.get("num_attention_heads")
+        or config.get("n_head")
+        or config.get("num_heads")
+        or 0
+    )
+
+    # Confidence: count how many of the three key fields are present
+    _key_fields_present = sum(1 for v in [h, num_layers, num_heads] if v)
+    if _key_fields_present == 3:
+        confidence = SourceConfidence.HIGH
+    elif _key_fields_present >= 1:
+        confidence = SourceConfidence.MEDIUM
+    else:
+        confidence = SourceConfidence.LOW
+
+    # Apply safe defaults for inference
+    h = h or 768
+    num_layers = num_layers or 12
+    num_heads = num_heads or (h // 64)
+
+    num_kv_heads = (
+        config.get("num_key_value_heads")
+        or config.get("num_kv_heads")
+        or num_heads
+    )
+    vocab_size = config.get("vocab_size") or 32000
+    max_pos = (
+        config.get("max_position_embeddings")
+        or config.get("n_positions")
+        or config.get("max_sequence_length")
+        or 2048
+    )
+    intermediate = (
+        config.get("intermediate_size")
+        or config.get("ffn_dim")
+        or config.get("d_ff")
+        or h * 4
+    )
+
+    # ── Architecture class detection ───────────────────────────────────────────
+    is_enc_dec = config.get("is_encoder_decoder", False)
+    _dec_signals = ("causallm", "decoderlm", "gpt", "llm", "decoder", "generative")
+    _enc_signals = ("maskedlm", "encoder", "bert", "roberta", "electra", "deberta")
+    _seq2seq_signals = ("seq2seq", "conditional", "t5", "bart", "pegasus")
+
+    if is_enc_dec or any(s in arch_str for s in _seq2seq_signals):
+        arch_class = "encoder_decoder"
+    elif any(s in arch_str for s in _enc_signals):
+        arch_class = "encoder"
+    elif any(s in arch_str for s in _dec_signals):
+        arch_class = "decoder"
+    else:
+        # Fallback heuristic: modern models with vocab > 50k tend to be decoders
+        arch_class = "decoder" if vocab_size > 40000 else "encoder"
+
+    # ── Activation & norm ──────────────────────────────────────────────────────
+    act_str = (
+        config.get("hidden_act")
+        or config.get("activation_function")
+        or config.get("activation")
+        or ("silu" if arch_class == "decoder" else "gelu")
+    )
+    act = _ACT_MAP.get(act_str, ActivationType.GELU)
+    is_gated = act in (ActivationType.SILU, ActivationType.SWIGLU, ActivationType.GEGLU)
+    ffn_matrices = 3 if is_gated else 2
+
+    # RMSNorm is the standard for modern decoders
+    has_rms_norm = (
+        "rms_norm_eps" in config
+        or config.get("norm_type") == "rms_norm"
+        or arch_class == "decoder"
+    )
+    norm_type = "rms_norm" if has_rms_norm else "layer_norm"
+    norm_params = h if has_rms_norm else h * 2
+
+    # ── MoE detection ─────────────────────────────────────────────────────────
+    n_experts = (
+        config.get("num_local_experts")
+        or config.get("n_routed_experts")
+        or config.get("num_experts")
+        or 0
+    )
+    n_experts_per_tok = (
+        config.get("num_experts_per_tok")
+        or config.get("top_k")
+        or (2 if n_experts else 0)
+    )
+    moe_intermediate = config.get("moe_intermediate_size") or intermediate
+    is_moe = n_experts > 0
+
+    # ── Position encoding ─────────────────────────────────────────────────────
+    pos_type = config.get("position_embedding_type", "")
+    if not pos_type:
+        if "rope_theta" in config or "rope_scaling" in config:
+            pos_type = "rope"
+        elif arch_class == "decoder":
+            pos_type = "rope"
+        else:
+            pos_type = "absolute"
+
+    # ── Param helpers ─────────────────────────────────────────────────────────
+    head_dim = h // num_heads
+    attn_p = _gqa_params(h, num_heads, num_kv_heads)
+    ffn_p = (
+        (n_experts * ffn_matrices * h * moe_intermediate + h * n_experts)
+        if is_moe
+        else ffn_matrices * h * intermediate
+    )
+    per_layer = attn_p + ffn_p + 2 * norm_params
+    emb_p = vocab_size * h
+    final_norm_p = norm_params
+    lm_head_p = h * vocab_size
+
+    # ── Block construction ────────────────────────────────────────────────────
+    def _norm_block(bid: str, label: str) -> ArchBlock:
+        return ArchBlock(
+            id=bid, label=label, type=BlockType.LAYER_NORM,
+            params={"normalized_shape": h, "norm_type": norm_type},
+            param_count=norm_params,
+        )
+
+    def _ffn_block(bid: str) -> ArchBlock:
+        if is_moe:
+            return ArchBlock(
+                id=bid, label=f"MoE FFN ({n_experts} experts, top-{n_experts_per_tok})",
+                type=BlockType.MOE_FEED_FORWARD,
+                params={"hidden_size": h, "intermediate_size": moe_intermediate,
+                        "num_experts": n_experts, "num_experts_per_tok": n_experts_per_tok,
+                        "activation": act.value},
+                param_count=ffn_p,
+            )
+        return ArchBlock(
+            id=bid, label=f"{'Gated ' if is_gated else ''}FFN",
+            type=BlockType.FEED_FORWARD,
+            params={"hidden_size": h, "intermediate_size": intermediate,
+                    "activation": act.value},
+            param_count=ffn_p,
+        )
+
+    def _attn_block(bid: str, is_causal: bool) -> ArchBlock:
+        attn_type = AttentionType.GQA if num_kv_heads != num_heads else AttentionType.MHA
+        params: dict[str, Any] = {
+            "hidden_size": h, "num_heads": num_heads, "head_dim": head_dim,
+            "attention_type": attn_type.value, "is_causal": is_causal,
+        }
+        if num_kv_heads != num_heads:
+            params["num_kv_heads"] = num_kv_heads
+        return ArchBlock(
+            id=bid, label=f"{'Causal ' if is_causal else ''}{'GQA' if num_kv_heads != num_heads else 'MHA'}",
+            type=BlockType.MULTI_HEAD_ATTENTION,
+            params=params, param_count=attn_p,
+        )
+
+    def _decoder_layer_children(is_causal: bool = True) -> list[ArchBlock]:
+        return [
+            _norm_block("input_norm", "RMSNorm" if has_rms_norm else "LayerNorm"),
+            _attn_block("self_attn", is_causal=is_causal),
+            _add_block("add_attn", "Residual 1"),
+            _norm_block("post_attn_norm", "RMSNorm" if has_rms_norm else "LayerNorm"),
+            _ffn_block("mlp"),
+            _add_block("add_ffn", "Residual 2"),
+        ]
+
+    blocks: list[ArchBlock] = []
 
     emb_block = ArchBlock(
-        id="embeddings",
-        label="Embeddings",
-        type=BlockType.EMBEDDING,
-        params={"vocab_size": vocab_size, "hidden_size": h, "max_position_embeddings": max_pos},
-        param_count=vocab_size * h,
-    )
-    encoder_block = ArchBlock(
-        id="encoder",
-        label=f"Transformer Stack ({model_type})",
-        type=BlockType.TRANSFORMER_STACK,
-        params={"hidden_size": h, "num_hidden_layers": num_layers, "num_attention_heads": num_heads},
-        repeat=num_layers,
-        children=[],
-        unknown_fields=["intermediate_size", "activation", "norm_type"],
+        id="embed_tokens", label="Embeddings", type=BlockType.EMBEDDING,
+        params={"vocab_size": vocab_size, "hidden_size": h,
+                "max_position_embeddings": max_pos,
+                "position_embedding_type": pos_type},
+        param_count=emb_p,
     )
 
+    if arch_class == "encoder":
+        # BERT-style encoder-only
+        children = _build_encoder_children(h, num_heads, intermediate, act,
+                                           is_causal=False, pre_norm=False)
+        blocks = [
+            emb_block,
+            ArchBlock(
+                id="encoder", label=f"Transformer Encoder ({model_type})",
+                type=BlockType.TRANSFORMER_STACK,
+                params={"hidden_size": h, "num_hidden_layers": num_layers,
+                        "num_attention_heads": num_heads,
+                        "intermediate_size": intermediate, "is_causal": False},
+                repeat=num_layers, children=children,
+                param_count=_stack_param_count(children, num_layers),
+            ),
+        ]
+
+    elif arch_class == "encoder_decoder":
+        # T5-style encoder-decoder
+        enc_children = _decoder_layer_children(is_causal=False)
+        dec_children = _decoder_layer_children(is_causal=True)
+        blocks = [
+            emb_block,
+            ArchBlock(
+                id="encoder", label="Encoder", type=BlockType.TRANSFORMER_STACK,
+                params={"hidden_size": h, "num_hidden_layers": num_layers,
+                        "num_attention_heads": num_heads, "is_causal": False},
+                repeat=num_layers, children=enc_children,
+                param_count=_stack_param_count(enc_children, num_layers),
+            ),
+            ArchBlock(
+                id="decoder", label="Decoder", type=BlockType.TRANSFORMER_STACK,
+                params={"hidden_size": h, "num_hidden_layers": num_layers,
+                        "num_attention_heads": num_heads, "is_causal": True},
+                repeat=num_layers, children=dec_children,
+                param_count=_stack_param_count(dec_children, num_layers),
+            ),
+            ArchBlock(id="lm_head", label="LM Head", type=BlockType.LINEAR,
+                      params={"in_features": h, "out_features": vocab_size, "bias": False},
+                      param_count=lm_head_p),
+        ]
+
+    else:
+        # Decoder-only (the vast majority of modern LLMs)
+        children = _decoder_layer_children(is_causal=True)
+        blocks = [
+            emb_block,
+            ArchBlock(
+                id="layers",
+                label=f"Transformer Decoder ({model_type})",
+                type=BlockType.TRANSFORMER_STACK,
+                params={
+                    "hidden_size": h, "num_hidden_layers": num_layers,
+                    "num_attention_heads": num_heads, "num_key_value_heads": num_kv_heads,
+                    "intermediate_size": intermediate, "is_causal": True,
+                },
+                repeat=num_layers, children=children,
+                param_count=_stack_param_count(children, num_layers),
+            ),
+            _norm_block("norm", "Final RMSNorm" if has_rms_norm else "Final LayerNorm"),
+            ArchBlock(id="lm_head", label="LM Head", type=BlockType.LINEAR,
+                      params={"in_features": h, "out_features": vocab_size, "bias": False},
+                      param_count=lm_head_p),
+        ]
+
+    display = model_id.split("/")[-1]
     ir = ArchitectureIR(
         name=model_id,
-        display_name=model_id.split("/")[-1],
+        display_name=display,
         family=model_type,
-        task=_infer_task(config.get("architectures", []), config),
-        architectures=config.get("architectures", []),
+        task=_infer_task(archs, config),
+        architectures=archs,
         source=SourceType.HF_CONFIG,
-        source_confidence=SourceConfidence.HIGH,
-        blocks=[emb_block, encoder_block],
+        source_confidence=confidence,
+        blocks=blocks,
     )
     ir.compute = estimate_compute(ir)
     return ir
