@@ -785,21 +785,21 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         clip_out_dim = cw
         blocks.append(ArchBlock(
             id="clip_l_vision",
-            label="CLIP ViT-L/14  ← parallel path 1",
+            label="CLIP ViT-L/14",
             type=BlockType.TRANSFORMER_STACK,
             params={"layers": cl, "width": cw, "heads": clip_cfg.get("heads", 16),
                     "patch_size": cp, "image_size": ci, "mlp_dim": clip_mlp,
                     "output_dim": cw},
             param_count=clip_p,
             notes=(
-                "PARALLEL PATH 1 of 2 — runs independently alongside SAM ViT-B.\n"
-                f"Processes the full global view image ({ci}×{ci}) using {cl} ViT-L transformer layers.\n"
+                f"Vision encoder — runs in parallel with SAM ViT-B.\n"
+                f"Processes the full global-view image ({ci}×{ci}) through {cl} ViT-L transformer layers.\n"
                 f"Output: {(ci//cp)**2} patch tokens × {cw} dims.\n\n"
-                f"Architecture: patch_size={cp}, width={cw}, heads={clip_cfg.get('heads',16)}, "
-                f"mlp_ratio={mlp_ratio:.4f}.\n"
-                f"Patch embedding: 3×{cp}×{cp}×{cw} = {patch_embed:,} params.\n"
-                f"Positional embedding: {(ci//cp)**2+1} positions × {cw} = {pos_embed:,} params.\n"
-                f"Transformer: {cl} layers × (4×{cw}² attn + 2×{cw}×{clip_mlp} FFN) = {transformer:,} params."
+                f"patch_size={cp}, width={cw}, heads={clip_cfg.get('heads',16)}, "
+                f"mlp_ratio={mlp_ratio:.4f}\n"
+                f"Patch embedding: 3×{cp}×{cp}×{cw} = {patch_embed:,} params\n"
+                f"Positional embedding: {(ci//cp)**2+1} pos × {cw} = {pos_embed:,} params\n"
+                f"Transformer: {cl} layers × (4×{cw}² attn + 2×{cw}×{clip_mlp} FFN) = {transformer:,} params"
             ),
         ))
 
@@ -822,18 +822,18 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         sam_out_dim = downsample[-1] if downsample else sw
         blocks.append(ArchBlock(
             id="sam_vit_b",
-            label="SAM ViT-B  ← parallel path 2",
+            label="SAM ViT-B",
             type=BlockType.TRANSFORMER_STACK,
             params={"layers": sl, "width": sw, "heads": sam_cfg.get("heads", 12),
                     "downsample_channels": downsample, "output_dim": sam_out_dim},
             param_count=sam_p,
             notes=(
-                "PARALLEL PATH 2 of 2 — runs independently alongside CLIP ViT-L/14.\n"
-                f"Processes tiled image regions at higher resolution using {sl} ViT-B layers.\n"
-                f"Neck reduces channel dim: {sw} → {downsample} → output {sam_out_dim} dims.\n\n"
-                f"Patch embedding (16×16): 3×16×16×{sw} = {patch_embed:,} params.\n"
-                f"Transformer: {sl} layers × (4×{sw}² attn + 2×{sw}×{sam_mlp} FFN) = {transformer:,} params.\n"
-                f"Neck (channel reduction): {neck_p:,} params."
+                f"Vision encoder — runs in parallel with CLIP ViT-L/14.\n"
+                f"Processes tiled image regions at higher resolution through {sl} ViT-B layers.\n"
+                f"Neck reduces channel dim: {sw} → {downsample} → {sam_out_dim}-d output.\n\n"
+                f"Patch embedding (16×16): 3×16×16×{sw} = {patch_embed:,} params\n"
+                f"Transformer: {sl} layers × (4×{sw}² attn + 2×{sw}×{sam_mlp} FFN) = {transformer:,} params\n"
+                f"Neck (channel reduction conv layers): {neck_p:,} params"
             ),
         ))
 
@@ -842,7 +842,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
     if clip_p and sam_p:
         blocks.append(ArchBlock(
             id="vision_fusion",
-            label=f"Vision Feature Fusion → {proj_in}-d",
+            label=f"Fused Vision Representation ({proj_in}-d)",
             type=BlockType.ADD,
             params={"output_dim": proj_in,
                     "clip_branch_width": clip_out_dim,
@@ -891,7 +891,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
     ))
     blocks.append(ArchBlock(
         id="layers",
-        label=(f"LM Decoder (MoE: {n_routed} experts, top-{n_experts_per_tok} active per token)"
+        label=(f"LM Decoder — MoE ({n_routed} routed + {n_shared} shared, top-{n_experts_per_tok} active/token · stored params)"
                if is_moe else "LM Decoder"),
         type=BlockType.TRANSFORMER_STACK,
         params={
@@ -906,18 +906,16 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         repeat=1, children=[],
         param_count=total_layer + final_norm_p,
         notes=(
-            f"MoE — two distinct parameter views:\n"
-            f"  • Stored / total params: {(total_stored_lm)/1e9:.2f}B "
-            f"(all {n_routed} routed + {n_shared} shared experts saved to disk)\n"
-            f"  • Active params per token: {active_lm/1e9:.2f}B "
-            f"(only top-{n_experts_per_tok} of {n_routed} routed experts compute; "
-            f"the remaining {n_routed - n_experts_per_tok} are idle each step)\n\n"
-            f"Layer breakdown ({num_layers} total):\n"
+            f"Params shown = stored (all experts saved to disk, not active compute).\n"
+            f"  • Stored: {(total_stored_lm)/1e9:.2f}B — {n_routed} routed + {n_shared} shared experts all on disk\n"
+            f"  • Active per token: {active_lm/1e9:.2f}B — top-{n_experts_per_tok} of {n_routed} routed "
+            f"fire; remaining {n_routed - n_experts_per_tok} are idle each step\n\n"
+            f"Layer breakdown ({num_layers} layers):\n"
             f"  • Layer{'s' if n_dense > 1 else ''} 0–{max(n_dense-1,0)}: "
             f"dense SwiGLU FFN (intermediate_size={lm_cfg.get('intermediate_size')})\n"
-            f"  • Layers {n_dense}–{num_layers-1}: MoE FFN "
-            f"({n_routed} routed experts, {n_shared} shared always-on, "
-            f"moe_intermediate_size={moe_intermediate})\n\n"
+            f"  • Layers {n_dense}–{num_layers-1}: MoE FFN — "
+            f"{n_routed} routed experts, {n_shared} shared (always-on), "
+            f"moe_intermediate_size={moe_intermediate}\n\n"
             f"Attention: {'MLA (Multi-head Latent Attention)' if use_mla else 'standard MHA'}, "
             f"{num_heads} heads, hidden={h}, head_dim={h // num_heads}."
         ) if is_moe else None,
