@@ -26,6 +26,10 @@ const TYPE_DESCRIPTIONS: Record<string, string> = {
     "Structured State Space Model: computes a sequence-to-sequence transformation through a linear recurrence, enabling sub-quadratic sequence modeling (used in Mamba).",
   conv1d:
     "1D depthwise convolution over the sequence dimension. Used in Mamba's selective scan to mix local context efficiently.",
+  rule_based:
+    "Rule-based or lookup-based component with no learned parameters. Operates via hand-crafted rules, regex patterns, or lookup tables rather than gradient-trained weights.",
+  nlp_head_group:
+    "A set of NLP prediction heads that all consume the SAME shared token features from Tok2Vec. They do not pass tensors to each other — each reads from the shared Doc object independently.",
   unknown:
     "Layer type not yet identified. Hover over parameters for raw config values.",
 };

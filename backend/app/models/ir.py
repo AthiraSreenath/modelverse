@@ -49,6 +49,8 @@ class BlockType(str, Enum):
     DROPOUT = "dropout"
     ACTIVATION = "activation"
     ADD = "add"            # Residual addition: output = x + sublayer(x)
+    RULE_BASED = "rule_based"   # Rule/lookup component — zero learned parameters
+    NLP_HEAD_GROUP = "nlp_head_group"  # Group of NLP heads sharing a feature encoder
     UNKNOWN = "unknown"
 
 

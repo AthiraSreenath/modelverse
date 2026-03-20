@@ -974,25 +974,29 @@ def _spacy_tok2vec_params(width: int, depth: int, embed_size: int,
 
 _SPACY_COMPONENT_META: dict[str, tuple[str, BlockType, str]] = {
     # name → (label, block_type, short description)
-    "tok2vec":        ("Tok2Vec (HashEmbedCNN)",  BlockType.CONV1D,   "Convolutional contextual encoder shared across all downstream components."),
-    "tagger":         ("POS Tagger",              BlockType.LINEAR,   "Linear classifier predicting Penn Treebank part-of-speech tags per token."),
-    "morphologizer":  ("Morphologizer",           BlockType.LINEAR,   "Predicts morphological features (gender, tense, case, …) per token."),
-    "parser":         ("Dependency Parser",       BlockType.UNKNOWN,  "Arc-eager transition-based dependency parser. Predicts syntactic head and relation label."),
-    "senter":         ("Sentence Segmenter",      BlockType.LINEAR,   "Binary classifier (I/S) for sentence boundary detection."),
-    "sentencizer":    ("Sentence Segmenter",      BlockType.UNKNOWN,  "Rule-based sentence boundary detection."),
-    "ner":            ("Named Entity Recognizer", BlockType.UNKNOWN,  "Transition-based NER using BILUO tagging scheme."),
-    "entity_linker":  ("Entity Linker",           BlockType.UNKNOWN,  "Links named entities to knowledge base entries."),
-    "entity_ruler":   ("Entity Ruler",            BlockType.UNKNOWN,  "Rule-based named entity recognizer (patterns/regex)."),
-    "textcat":        ("Text Classifier",         BlockType.LINEAR,   "Document-level text categorization head."),
+    "tok2vec":        ("Tok2Vec (HashEmbedCNN)",  BlockType.CONV1D,        "Convolutional contextual encoder. Produces shared token features consumed by all neural heads."),
+    "tagger":         ("POS Tagger",              BlockType.LINEAR,        "Linear classifier predicting Penn Treebank part-of-speech tags per token. Reads shared Tok2Vec features."),
+    "morphologizer":  ("Morphologizer",           BlockType.LINEAR,        "Predicts morphological features (gender, tense, case, …) per token. Reads shared Tok2Vec features."),
+    "parser":         ("Dependency Parser",       BlockType.UNKNOWN,       "Arc-eager transition-based dependency parser. Reads shared Tok2Vec features."),
+    "senter":         ("Sentence Segmenter",      BlockType.LINEAR,        "Binary classifier (I/S) for sentence boundary detection. Reads shared Tok2Vec features."),
+    "sentencizer":    ("Sentence Segmenter",      BlockType.RULE_BASED,    "Rule-based sentence boundary detection (punctuation patterns). No learned parameters."),
+    "ner":            ("Named Entity Recognizer", BlockType.UNKNOWN,       "Transition-based NER using BILUO tagging scheme. Reads shared Tok2Vec features — does NOT depend on tagger or parser output."),
+    "entity_linker":  ("Entity Linker",           BlockType.UNKNOWN,       "Links named entities to knowledge base entries."),
+    "entity_ruler":   ("Entity Ruler",            BlockType.RULE_BASED,    "Rule-based named entity recognizer using patterns/regex. No learned parameters."),
+    "textcat":        ("Text Classifier",         BlockType.LINEAR,        "Document-level text categorization head."),
     "textcat_multilabel": ("Multi-label Text Classifier", BlockType.LINEAR, "Multi-label document classification head."),
-    "attribute_ruler": ("Attribute Ruler",        BlockType.UNKNOWN,  "Rule-based token attribute assignment (no learned parameters)."),
-    "lemmatizer":     ("Lemmatizer",              BlockType.UNKNOWN,  "Rule-based or lookup-based lemmatizer (no learned parameters)."),
-    "span_ruler":     ("Span Ruler",              BlockType.UNKNOWN,  "Rule-based span/entity detection."),
-    "spancat":        ("Span Categorizer",        BlockType.UNKNOWN,  "Span-level categorization using a suggester + classifier."),
-    "coref":          ("Coreference Resolver",    BlockType.UNKNOWN,  "Neural coreference resolution."),
+    "attribute_ruler": ("Attribute Ruler",        BlockType.RULE_BASED,    "Rule-based token attribute assignment via pattern matching. No learned parameters."),
+    "lemmatizer":     ("Lemmatizer",              BlockType.RULE_BASED,    "Lookup/rule-based lemmatizer. Uses language-specific tables, not learned weights."),
+    "span_ruler":     ("Span Ruler",              BlockType.RULE_BASED,    "Rule-based span/entity detection. No learned parameters."),
+    "spancat":        ("Span Categorizer",        BlockType.UNKNOWN,       "Span-level categorization using a suggester + classifier."),
+    "coref":          ("Coreference Resolver",    BlockType.UNKNOWN,       "Neural coreference resolution."),
 }
 
-# Components that are rule-based and have zero learned parameters
+# Components that produce predictions from Tok2Vec features (run in parallel conceptually)
+_NEURAL_HEADS = {"tagger", "morphologizer", "parser", "senter", "ner", "textcat",
+                  "textcat_multilabel", "spancat", "coref", "entity_linker"}
+
+# Components that are rule-based (zero learned params, run after neural heads)
 _RULE_BASED = {"attribute_ruler", "lemmatizer", "sentencizer", "entity_ruler", "span_ruler"}
 
 
@@ -1073,7 +1077,6 @@ def _spacy_component_block(
 
     elif name in _RULE_BASED:
         param_count = 0
-        notes_parts.append("Rule-based — no learned parameters.")
 
     params: dict[str, Any] = {"component": name}
     if n_labels:
@@ -1081,6 +1084,8 @@ def _spacy_component_block(
     if name == "tok2vec":
         params.update({"width": tok2vec_width, "depth": tok2vec_depth,
                        "embed_size": tok2vec_embed_size})
+    if btype == BlockType.RULE_BASED:
+        params["rule_based"] = True
 
     return ArchBlock(
         id=name,
@@ -1114,7 +1119,21 @@ def _parse_spacy(config: dict, model_id: str) -> ArchitectureIR:
 
     blocks: list[ArchBlock] = []
 
-    # Word vectors table (static embeddings, not trained weights)
+    # ── Tokenizer (always present, rule-based) ────────────────────────────────
+    blocks.append(ArchBlock(
+        id="tokenizer",
+        label="Tokenizer",
+        type=BlockType.RULE_BASED,
+        params={"component": "tokenizer", "rule_based": True, "lang": lang},
+        param_count=0,
+        notes=(
+            f"Language-specific rule-based tokenizer ({lang}).\n"
+            "Segments raw text into tokens using whitespace + exception rules.\n"
+            "No learned parameters — writes tokens to the shared Doc object."
+        ),
+    ))
+
+    # ── Word vectors table (static, not trained) ──────────────────────────────
     vec_count = vectors_info.get("vectors", 0)
     vec_width = vectors_info.get("width", 0)
     if vec_count and vec_width:
@@ -1128,15 +1147,32 @@ def _parse_spacy(config: dict, model_id: str) -> ArchitectureIR:
             notes=(
                 f"Static pre-trained word vectors: {vec_count:,} entries × {vec_width} dims "
                 f"= {vec_count * vec_width / 1e6:.1f}M values.\n"
-                "Loaded from a lookup table at runtime — not updated during training."
+                "Loaded from a lookup table at runtime — not updated during training.\n"
+                "Available to all components via Doc.vector but not the primary Tok2Vec input."
             ),
         ))
 
-    # One block per pipeline component
+    # ── Separate pipeline components into three buckets ───────────────────────
+    # 1. tok2vec  2. neural heads  3. rule-based post-processors
+    neural_head_comps: list[str] = []
+    rule_based_comps:  list[str] = []
+    has_tok2vec = "tok2vec" in pipeline
+
     for comp in pipeline:
+        if comp == "tok2vec":
+            continue
+        elif comp in _NEURAL_HEADS:
+            neural_head_comps.append(comp)
+        elif comp in _RULE_BASED:
+            rule_based_comps.append(comp)
+        else:
+            # Unknown — treat as neural head so it appears in the group
+            neural_head_comps.append(comp)
+
+    def _make_block(comp: str) -> ArchBlock:
         comp_labels = labels.get(comp, [])
         n_labels = len(comp_labels) if isinstance(comp_labels, list) else 0
-        block = _spacy_component_block(
+        blk = _spacy_component_block(
             comp, n_labels,
             tok2vec_width, tok2vec_depth, tok2vec_embed,
             tok2vec_window, tok2vec_maxout, tok2vec_subword,
@@ -1144,8 +1180,46 @@ def _parse_spacy(config: dict, model_id: str) -> ArchitectureIR:
             performance,
         )
         if comp in disabled:
-            block.notes = (block.notes or "") + "\n[disabled by default]"
-        blocks.append(block)
+            blk.notes = (blk.notes or "") + "\n[disabled by default]"
+        return blk
+
+    # ── Tok2Vec encoder ───────────────────────────────────────────────────────
+    if has_tok2vec:
+        blocks.append(_make_block("tok2vec"))
+
+    # ── Neural heads — grouped to show shared-feature fan-out ────────────────
+    if neural_head_comps:
+        head_blocks = [_make_block(c) for c in neural_head_comps]
+        total_head_params = sum(b.param_count or 0 for b in head_blocks)
+
+        if len(head_blocks) == 1:
+            # Single head — no need for a group
+            blocks.append(head_blocks[0])
+        else:
+            group_notes = (
+                "All heads below read from the SAME shared Tok2Vec feature vectors "
+                "written to the Doc — they do NOT pass tensors to each other.\n\n"
+                "Each head is an independent classifier/transition-system on top of "
+                "the shared contextual token representations.\n\n"
+                "Expand to inspect individual heads."
+            )
+            head_labels = ", ".join(
+                _SPACY_COMPONENT_META.get(c, (c,))[0] for c in neural_head_comps
+            )
+            blocks.append(ArchBlock(
+                id="neural_heads",
+                label=f"Neural Heads ({len(head_blocks)}×)",
+                type=BlockType.NLP_HEAD_GROUP,
+                params={"num_heads": len(head_blocks), "shared_encoder": "tok2vec",
+                        "heads": head_labels},
+                param_count=total_head_params,
+                children=head_blocks,
+                notes=group_notes,
+            ))
+
+    # ── Rule-based post-processors ────────────────────────────────────────────
+    for comp in rule_based_comps:
+        blocks.append(_make_block(comp))
 
     # Task inference
     task = "token-classification"

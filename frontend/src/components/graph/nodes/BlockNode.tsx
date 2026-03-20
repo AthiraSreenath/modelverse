@@ -25,6 +25,9 @@ const BLOCK_COLORS: Record<string, string> = {
   ssm: "border-cyan-400/60 bg-cyan-400/10",
   conv1d: "border-teal-400/60 bg-teal-400/10",
   add: "border-green-500/50 bg-green-500/8",
+  // NLP-specific
+  rule_based: "border-slate-500/40 bg-slate-500/5 border-dashed",
+  nlp_head_group: "border-sky-500/60 bg-sky-500/10",
   unknown: "border-slate-500/40 bg-slate-500/5",
 };
 
@@ -39,6 +42,9 @@ const BLOCK_DOT: Record<string, string> = {
   ssm: "bg-cyan-400",
   conv1d: "bg-teal-400",
   add: "bg-green-400",
+  // NLP-specific
+  rule_based: "bg-slate-500",
+  nlp_head_group: "bg-sky-400",
   unknown: "bg-slate-400",
 };
 
@@ -49,7 +55,8 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
   const { toggleBlockExpanded, setSelectedBlockId } = useStore();
 
   const hasChildren = block.children.length > 0;
-  const isStack = block.type === "transformer_stack";
+  const isStack = block.type === "transformer_stack" || block.type === "nlp_head_group";
+  const isRuleBased = block.type === "rule_based";
   const colorClass =
     BLOCK_COLORS[block.type] ?? BLOCK_COLORS.unknown;
   const dotClass = BLOCK_DOT[block.type] ?? BLOCK_DOT.unknown;
@@ -99,13 +106,18 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
         <div className={cn("w-2 h-2 rounded-full flex-shrink-0", dotClass)} />
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             <span className="text-sm font-medium text-white">
               {block.label}
             </span>
             {isStack && block.repeat > 1 && (
               <span className="text-xs text-slate-400 flex-shrink-0">
                 ×{block.repeat}
+              </span>
+            )}
+            {isRuleBased && (
+              <span className="text-[10px] px-1 py-0.5 rounded bg-slate-700 text-slate-400 flex-shrink-0 font-mono">
+                rule-based
               </span>
             )}
           </div>

@@ -88,6 +88,8 @@ export default function ArchGraph() {
               feed_forward: "#f97316",
               layer_norm: "#94a3b8",
               linear: "#10b981",
+              rule_based: "#64748b",
+              nlp_head_group: "#0ea5e9",
             };
             return colors[type ?? ""] ?? "#64748b";
           }}
