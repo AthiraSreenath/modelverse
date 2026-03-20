@@ -696,8 +696,54 @@ def _vit_params(layers: int, width: int, mlp_dim: int) -> int:
     return layers * (attn + ffn + norms)
 
 
+def _moe_active_params(lm_cfg: dict) -> int:
+    """
+    Active parameter count per token for a DeepSeekV2-style MoE LM.
+    Only the top-k routed experts + all shared experts fire per token;
+    the remaining (n_routed - k) experts are stored but never compute.
+    """
+    h = lm_cfg.get("hidden_size", 1280)
+    num_layers = lm_cfg.get("num_hidden_layers", 12)
+    num_heads = lm_cfg.get("num_attention_heads", 10)
+    num_kv_heads = lm_cfg.get("num_key_value_heads", num_heads)
+    intermediate = lm_cfg.get("intermediate_size", h * 4)
+    moe_intermediate = lm_cfg.get("moe_intermediate_size", 0)
+    n_routed = lm_cfg.get("n_routed_experts", 0)
+    n_shared = lm_cfg.get("n_shared_experts", 0)
+    n_active = lm_cfg.get("num_experts_per_tok", 0)
+    first_k_dense = lm_cfg.get("first_k_dense_replace", 0)
+    vocab_size = lm_cfg.get("vocab_size", 32000)
+
+    n_dense = min(first_k_dense, num_layers)
+    n_moe = num_layers - n_dense
+
+    attn_per_layer = _gqa_params(h, num_heads, num_kv_heads)
+    norm_per_layer = 2 * h
+    dense_ffn = 3 * h * intermediate
+
+    if n_routed and moe_intermediate and n_active:
+        # Only n_active routed experts run per token; shared always run
+        active_moe = (n_active * 3 * h * moe_intermediate    # top-k routed
+                      + n_shared * 3 * h * moe_intermediate  # shared (always on)
+                      + h * n_routed)                         # router
+    else:
+        active_moe = dense_ffn
+
+    active_layers = (num_layers * (attn_per_layer + norm_per_layer)
+                     + n_dense * dense_ffn
+                     + n_moe * active_moe)
+    return active_layers + h + vocab_size * h + h * vocab_size  # +norms+emb+lmhead
+
+
 def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
-    """Handles deepseek_vl_v2: Vision Encoder + Projector + DeepSeekV2 LM."""
+    """
+    Handles deepseek_vl_v2: two PARALLEL vision encoders → fusion → projector → LM.
+
+    Vision path (parallel, not sequential):
+        CLIP ViT-L/14  ──┐
+                         ├─ concat (1024+1024=2048) ─→ projector ─→ LM
+        SAM  ViT-B     ──┘
+    """
     lm_cfg = config.get("language_config", config)
     vis_cfg = config.get("vision_config", {})
     proj_cfg = config.get("projector_config", {})
@@ -719,11 +765,12 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
 
     total_layer, final_norm_p, emb_p, lm_head_p, _ = _deepseek_lm_param_count(lm_cfg)
 
-    # --- Vision encoder blocks ---
+    # ── Vision encoders (PARALLEL paths — both process the image independently) ──
     blocks: list[ArchBlock] = []
 
     clip_cfg = vis_width_cfg.get("clip-l-14-224", {})
     clip_p = 0
+    clip_out_dim = 0
     if clip_cfg:
         cw = clip_cfg.get("width", 1024)
         cl = clip_cfg.get("layers", 24)
@@ -731,33 +778,39 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         ci = clip_cfg.get("image_size", 224)
         clip_mlp = int(cw * mlp_ratio)
         patch_embed = 3 * cp * cp * cw
-        pos_embed = ((ci // cp) ** 2 + 1) * cw  # class token + patches
+        pos_embed = ((ci // cp) ** 2 + 1) * cw
         transformer = _vit_params(cl, cw, clip_mlp)
         final_ln = 2 * cw
         clip_p = patch_embed + pos_embed + transformer + final_ln
+        clip_out_dim = cw
         blocks.append(ArchBlock(
-            id="clip_l_vision", label=f"CLIP ViT-L/14 (Vision Encoder)",
+            id="clip_l_vision",
+            label="CLIP ViT-L/14  ← parallel path 1",
             type=BlockType.TRANSFORMER_STACK,
             params={"layers": cl, "width": cw, "heads": clip_cfg.get("heads", 16),
-                    "patch_size": cp, "image_size": ci, "mlp_dim": clip_mlp},
+                    "patch_size": cp, "image_size": ci, "mlp_dim": clip_mlp,
+                    "output_dim": cw},
             param_count=clip_p,
             notes=(
-                f"CLIP ViT-L/14 vision encoder: {cl} transformer layers, width={cw}, "
-                f"mlp_ratio={mlp_ratio:.4f}, patch_size={cp}, image_size={ci}.\n"
+                "PARALLEL PATH 1 of 2 — runs independently alongside SAM ViT-B.\n"
+                f"Processes the full global view image ({ci}×{ci}) using {cl} ViT-L transformer layers.\n"
+                f"Output: {(ci//cp)**2} patch tokens × {cw} dims.\n\n"
+                f"Architecture: patch_size={cp}, width={cw}, heads={clip_cfg.get('heads',16)}, "
+                f"mlp_ratio={mlp_ratio:.4f}.\n"
                 f"Patch embedding: 3×{cp}×{cp}×{cw} = {patch_embed:,} params.\n"
                 f"Positional embedding: {(ci//cp)**2+1} positions × {cw} = {pos_embed:,} params.\n"
-                f"Transformer: {cl} layers × (4×{cw}² attn + 2×{cw}×{clip_mlp} FFN + norms)"
-                f" = {transformer:,} params."
+                f"Transformer: {cl} layers × (4×{cw}² attn + 2×{cw}×{clip_mlp} FFN) = {transformer:,} params."
             ),
         ))
 
     sam_cfg = vis_width_cfg.get("sam_vit_b", {})
     sam_p = 0
+    sam_out_dim = 0
     if sam_cfg:
         sw = sam_cfg.get("width", 768)
         sl = sam_cfg.get("layers", 12)
-        sam_mlp = sw * 4  # standard ViT-B FFN ratio
-        patch_embed = 3 * 16 * 16 * sw  # SAM-ViT uses 16×16 patches
+        sam_mlp = sw * 4
+        patch_embed = 3 * 16 * 16 * sw
         transformer = _vit_params(sl, sw, sam_mlp)
         downsample = sam_cfg.get("downsample_channels", [])
         neck_p = 0
@@ -766,52 +819,78 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
             neck_p += prev * dc + dc
             prev = dc
         sam_p = patch_embed + transformer + neck_p
+        sam_out_dim = downsample[-1] if downsample else sw
         blocks.append(ArchBlock(
-            id="sam_vit_b", label="SAM ViT-B (Vision Encoder)",
+            id="sam_vit_b",
+            label="SAM ViT-B  ← parallel path 2",
             type=BlockType.TRANSFORMER_STACK,
             params={"layers": sl, "width": sw, "heads": sam_cfg.get("heads", 12),
-                    "downsample_channels": downsample},
+                    "downsample_channels": downsample, "output_dim": sam_out_dim},
             param_count=sam_p,
             notes=(
-                f"Segment Anything Model ViT-B: {sl} layers, width={sw}.\n"
+                "PARALLEL PATH 2 of 2 — runs independently alongside CLIP ViT-L/14.\n"
+                f"Processes tiled image regions at higher resolution using {sl} ViT-B layers.\n"
+                f"Neck reduces channel dim: {sw} → {downsample} → output {sam_out_dim} dims.\n\n"
                 f"Patch embedding (16×16): 3×16×16×{sw} = {patch_embed:,} params.\n"
-                f"Transformer: {sl} layers × (4×{sw}² attn + 2×{sw}×{sam_mlp} FFN) = {transformer:,}.\n"
-                f"Neck (channel reduction {sw}→{downsample}): {neck_p:,} params."
+                f"Transformer: {sl} layers × (4×{sw}² attn + 2×{sw}×{sam_mlp} FFN) = {transformer:,} params.\n"
+                f"Neck (channel reduction): {neck_p:,} params."
             ),
         ))
 
-    # Projector
+    # ── Fusion: concatenate both vision streams ────────────────────────────────
     proj_in = proj_cfg.get("input_dim", 2048)
+    if clip_p and sam_p:
+        blocks.append(ArchBlock(
+            id="vision_fusion",
+            label=f"Feature Fusion (Concat: {clip_out_dim} + {sam_out_dim} → {proj_in})",
+            type=BlockType.ADD,
+            params={"operation": "concat", "clip_dim": clip_out_dim,
+                    "sam_dim": sam_out_dim, "output_dim": proj_in},
+            param_count=0,
+            notes=(
+                "The two parallel vision streams are CONCATENATED along the feature dimension — "
+                "NOT stacked sequentially.\n"
+                f"CLIP output ({clip_out_dim} dims) ││ SAM output ({sam_out_dim} dims) "
+                f"→ {proj_in} dims.\n"
+                "No learned parameters in this operation."
+            ),
+        ))
+
+    # ── Projector ──────────────────────────────────────────────────────────────
     proj_out = proj_cfg.get("n_embed", h)
     proj_type = proj_cfg.get("projector_type", "linear")
     proj_p = proj_in * proj_out + proj_out
-    if proj_in > 0:
-        blocks.append(ArchBlock(
-            id="projector", label=f"Vision Projector ({proj_type}: {proj_in}→{proj_out})",
-            type=BlockType.LINEAR,
-            params={"in_features": proj_in, "out_features": proj_out, "bias": True},
-            param_count=proj_p,
-            notes=(
-                f"Projects concatenated vision features ({proj_in}={clip_cfg.get('width',1024)}"
-                f"+{sam_cfg.get('width',1024)}) into LM hidden size ({proj_out})."
-                if clip_cfg and sam_cfg else None
-            ),
-        ))
+    blocks.append(ArchBlock(
+        id="projector",
+        label=f"Vision Projector ({proj_type}: {proj_in} → {proj_out})",
+        type=BlockType.LINEAR,
+        params={"in_features": proj_in, "out_features": proj_out, "bias": True},
+        param_count=proj_p,
+        notes=(
+            f"Maps fused vision features ({proj_in} dims) into the LM token space ({proj_out} dims).\n"
+            f"Type: {proj_type}  |  {proj_in:,} × {proj_out:,} + {proj_out:,} bias = {proj_p:,} params."
+        ),
+    ))
 
-    # LM blocks
+    # ── LM blocks ──────────────────────────────────────────────────────────────
     n_dense = min(first_k_dense, num_layers)
     n_moe = num_layers - n_dense
     is_moe = n_routed > 0 and moe_intermediate > 0
 
+    # Active params per token (only top-k experts fire per token in MoE)
+    active_lm = _moe_active_params(lm_cfg) if is_moe else (total_layer + final_norm_p + emb_p + lm_head_p)
+    total_stored_lm = total_layer + final_norm_p + emb_p + lm_head_p
+
     blocks.append(ArchBlock(
         id="embed_tokens", label="Token Embeddings", type=BlockType.EMBEDDING,
-        params={"vocab_size": vocab_size, "hidden_size": h, "max_position_embeddings": max_pos,
-                "position_embedding_type": "rope"},
+        params={"vocab_size": vocab_size, "hidden_size": h,
+                "max_position_embeddings": max_pos, "position_embedding_type": "rope"},
         param_count=emb_p,
     ))
     blocks.append(ArchBlock(
         id="layers",
-        label=f"LM Decoder (DeepSeekV2-MoE, {n_routed} experts)" if is_moe else "LM Decoder",
+        label=(f"LM Decoder (MoE: {n_routed} experts, top-{n_experts_per_tok} active per token)"
+               if is_moe else "LM Decoder"),
         type=BlockType.TRANSFORMER_STACK,
         params={
             "hidden_size": h, "num_hidden_layers": num_layers,
@@ -822,18 +901,21 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
                 "num_experts_per_tok": n_experts_per_tok,
                 "first_k_dense_replace": first_k_dense} if is_moe else {}),
         },
-        # repeat=1: param_count stores the all-layers total (mixed dense+MoE layers
-        # cannot be expressed as a single per-layer value × repeat).
-        # num_hidden_layers in params drives KV-cache calculation.
         repeat=1, children=[],
         param_count=total_layer + final_norm_p,
         notes=(
-            f"First {n_dense} layer(s): dense SwiGLU FFN (intermediate_size="
+            f"⚠️  Two distinct parameter counts for MoE:\n"
+            f"  • Stored (model file size): {(total_stored_lm)/1e9:.2f}B — all {n_routed} experts "
+            f"are saved to disk.\n"
+            f"  • Active per token: {active_lm/1e9:.2f}B — only top-{n_experts_per_tok} of "
+            f"{n_routed} routed experts compute on each token; the rest are idle.\n\n"
+            f"Layer breakdown ({num_layers} total):\n"
+            f"  • Layer 0–{n_dense-1}: dense SwiGLU FFN (intermediate_size="
             f"{lm_cfg.get('intermediate_size')}).\n"
-            f"Remaining {n_moe} layers: MoE FFN with {n_routed} routed experts + {n_shared} shared "
-            f"(top-{n_experts_per_tok} active, moe_intermediate_size={moe_intermediate}).\n"
-            f"All layers use {'MLA' if use_mla else 'standard MHA'} "
-            f"({num_heads} heads, h={h}, head_dim={h // num_heads})."
+            f"  • Layers {n_dense}–{num_layers-1}: MoE FFN — {n_routed} routed experts + "
+            f"{n_shared} shared experts always active (moe_intermediate_size={moe_intermediate}).\n\n"
+            f"Attention: {'MLA (Multi-head Latent)' if use_mla else 'standard MHA'} — "
+            f"{num_heads} heads, h={h}, head_dim={h // num_heads}."
         ) if is_moe else None,
     ))
     blocks.append(ArchBlock(
@@ -845,7 +927,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
     total_all = clip_p + sam_p + proj_p + emb_p + total_layer + final_norm_p + lm_head_p
     ir = ArchitectureIR(
         name=model_id,
-        display_name=f"DeepSeek-VL2 ({_approx_billion(total_all)})",
+        display_name=f"DeepSeek-VL2 ({_approx_billion(total_all)} stored)",
         family="deepseek_vl_v2",
         task="image-text-to-text",
         architectures=config.get("architectures", []),
