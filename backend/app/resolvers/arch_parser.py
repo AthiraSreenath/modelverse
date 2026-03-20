@@ -863,6 +863,243 @@ def _approx_billion(n: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# spaCy NLP pipeline parser
+# ---------------------------------------------------------------------------
+
+def _spacy_tok2vec_params(width: int, depth: int, embed_size: int,
+                           window: int, maxout: int, subword: bool) -> int:
+    """Estimate HashEmbedCNN parameter count."""
+    # Hash embedding tables: 4 tables for token features + 5 if subword
+    n_tables = 9 if subword else 4
+    embed_p = n_tables * embed_size * width
+    # CNN layers: each layer is (2*window+1) conv, width in/out, maxout pieces
+    cnn_p = depth * (2 * window + 1) * width * width * maxout
+    return embed_p + cnn_p
+
+
+_SPACY_COMPONENT_META: dict[str, tuple[str, BlockType, str]] = {
+    # name → (label, block_type, short description)
+    "tok2vec":        ("Tok2Vec (HashEmbedCNN)",  BlockType.CONV1D,   "Convolutional contextual encoder shared across all downstream components."),
+    "tagger":         ("POS Tagger",              BlockType.LINEAR,   "Linear classifier predicting Penn Treebank part-of-speech tags per token."),
+    "morphologizer":  ("Morphologizer",           BlockType.LINEAR,   "Predicts morphological features (gender, tense, case, …) per token."),
+    "parser":         ("Dependency Parser",       BlockType.UNKNOWN,  "Arc-eager transition-based dependency parser. Predicts syntactic head and relation label."),
+    "senter":         ("Sentence Segmenter",      BlockType.LINEAR,   "Binary classifier (I/S) for sentence boundary detection."),
+    "sentencizer":    ("Sentence Segmenter",      BlockType.UNKNOWN,  "Rule-based sentence boundary detection."),
+    "ner":            ("Named Entity Recognizer", BlockType.UNKNOWN,  "Transition-based NER using BILUO tagging scheme."),
+    "entity_linker":  ("Entity Linker",           BlockType.UNKNOWN,  "Links named entities to knowledge base entries."),
+    "entity_ruler":   ("Entity Ruler",            BlockType.UNKNOWN,  "Rule-based named entity recognizer (patterns/regex)."),
+    "textcat":        ("Text Classifier",         BlockType.LINEAR,   "Document-level text categorization head."),
+    "textcat_multilabel": ("Multi-label Text Classifier", BlockType.LINEAR, "Multi-label document classification head."),
+    "attribute_ruler": ("Attribute Ruler",        BlockType.UNKNOWN,  "Rule-based token attribute assignment (no learned parameters)."),
+    "lemmatizer":     ("Lemmatizer",              BlockType.UNKNOWN,  "Rule-based or lookup-based lemmatizer (no learned parameters)."),
+    "span_ruler":     ("Span Ruler",              BlockType.UNKNOWN,  "Rule-based span/entity detection."),
+    "spancat":        ("Span Categorizer",        BlockType.UNKNOWN,  "Span-level categorization using a suggester + classifier."),
+    "coref":          ("Coreference Resolver",    BlockType.UNKNOWN,  "Neural coreference resolution."),
+}
+
+# Components that are rule-based and have zero learned parameters
+_RULE_BASED = {"attribute_ruler", "lemmatizer", "sentencizer", "entity_ruler", "span_ruler"}
+
+
+def _spacy_component_block(
+    name: str,
+    n_labels: int,
+    tok2vec_width: int,
+    tok2vec_depth: int,
+    tok2vec_embed_size: int,
+    tok2vec_window: int,
+    tok2vec_maxout: int,
+    tok2vec_subword: bool,
+    label_list: list[str],
+    perf: dict,
+) -> ArchBlock:
+    label, btype, desc = _SPACY_COMPONENT_META.get(
+        name, (name.replace("_", " ").title(), BlockType.UNKNOWN, "")
+    )
+
+    param_count: int | None = None
+    notes_parts = [desc]
+
+    if name == "tok2vec":
+        param_count = _spacy_tok2vec_params(
+            tok2vec_width, tok2vec_depth, tok2vec_embed_size,
+            tok2vec_window, tok2vec_maxout, tok2vec_subword,
+        )
+        notes_parts.append(
+            f"Architecture: HashEmbedCNN — width={tok2vec_width}, depth={tok2vec_depth}, "
+            f"embed_size={tok2vec_embed_size}, window={tok2vec_window}, "
+            f"maxout_pieces={tok2vec_maxout}, subword={'yes' if tok2vec_subword else 'no'}."
+        )
+
+    elif name == "tagger" and n_labels:
+        param_count = tok2vec_width * n_labels
+        acc = perf.get("tag_acc")
+        notes_parts.append(f"{n_labels} POS tags: {', '.join(label_list[:8])}{'…' if n_labels > 8 else '.'}")
+        if acc:
+            notes_parts.append(f"Accuracy: {acc:.1%}")
+
+    elif name == "morphologizer" and n_labels:
+        param_count = tok2vec_width * n_labels
+        notes_parts.append(f"{n_labels} morphological features.")
+
+    elif name == "senter" and n_labels:
+        param_count = tok2vec_width * 2
+        f1 = perf.get("sents_f")
+        notes_parts.append("Outputs I (inside sentence) or S (sentence start) per token.")
+        if f1:
+            notes_parts.append(f"F1: {f1:.1%}")
+
+    elif name == "textcat" and n_labels:
+        param_count = tok2vec_width * n_labels
+        notes_parts.append(f"{n_labels} categories: {', '.join(label_list[:8])}.")
+
+    elif name == "parser":
+        # Transition-based: rough estimate (tok2vec output → upper MLP → actions)
+        n_moves = n_labels * 4 + 3  # SHIFT, REDUCE, LEFT-ARC×n, RIGHT-ARC×n, BREAK
+        param_count = tok2vec_width * 64 + 64 * n_moves  # upper MLP approximation
+        uas = perf.get("dep_uas"); las = perf.get("dep_las")
+        notes_parts.append(
+            f"{n_labels} dependency relation labels. "
+            f"Sample: {', '.join(label_list[:6])}{'…' if n_labels > 6 else '.'}"
+        )
+        if uas:
+            notes_parts.append(f"UAS: {uas:.1%}  LAS: {las:.1%}" if las else f"UAS: {uas:.1%}")
+
+    elif name == "ner":
+        # BILUO: each entity type → 4 tags (B/I/L/U) + O = 4n+1 outputs
+        n_out = 4 * n_labels + 1 if n_labels else 0
+        param_count = tok2vec_width * 64 + 64 * n_out if n_out else None
+        ep = perf.get("ents_p"); er = perf.get("ents_r"); ef = perf.get("ents_f")
+        notes_parts.append(
+            f"{n_labels} entity types: {', '.join(label_list[:8])}{'…' if n_labels > 8 else '.'}"
+        )
+        if ef:
+            notes_parts.append(f"Precision: {ep:.1%}  Recall: {er:.1%}  F1: {ef:.1%}" if ep and er else f"F1: {ef:.1%}")
+
+    elif name in _RULE_BASED:
+        param_count = 0
+        notes_parts.append("Rule-based — no learned parameters.")
+
+    params: dict[str, Any] = {"component": name}
+    if n_labels:
+        params["num_labels"] = n_labels
+    if name == "tok2vec":
+        params.update({"width": tok2vec_width, "depth": tok2vec_depth,
+                       "embed_size": tok2vec_embed_size})
+
+    return ArchBlock(
+        id=name,
+        label=label,
+        type=btype,
+        params=params,
+        param_count=param_count,
+        notes="\n".join(p for p in notes_parts if p),
+    )
+
+
+def _parse_spacy(config: dict, model_id: str) -> ArchitectureIR:
+    """Parse a spaCy NLP pipeline from meta.json (+ optional config.cfg data)."""
+    name = config.get("name", model_id.split("/")[-1])
+    lang = config.get("lang", "en")
+    version = config.get("version", "")
+    pipeline: list[str] = config.get("pipeline", [])
+    labels: dict = config.get("labels", {})
+    vectors_info: dict = config.get("vectors", {})
+    performance: dict = config.get("performance", {})
+    cfg: dict = config.get("_cfg", {})
+    disabled: list[str] = config.get("disabled", [])
+
+    # Architecture dimensions — from config.cfg or well-known defaults
+    tok2vec_width    = cfg.get("tok2vec_width", 96)
+    tok2vec_depth    = cfg.get("tok2vec_depth", 4)
+    tok2vec_embed    = cfg.get("tok2vec_embed_size", 2000)
+    tok2vec_window   = cfg.get("tok2vec_window", 1)
+    tok2vec_maxout   = cfg.get("tok2vec_maxout", 3)
+    tok2vec_subword  = cfg.get("tok2vec_subword", True)
+
+    blocks: list[ArchBlock] = []
+
+    # Word vectors table (static embeddings, not trained weights)
+    vec_count = vectors_info.get("vectors", 0)
+    vec_width = vectors_info.get("width", 0)
+    if vec_count and vec_width:
+        blocks.append(ArchBlock(
+            id="vectors",
+            label=f"Word Vectors ({vectors_info.get('name', 'static')})",
+            type=BlockType.EMBEDDING,
+            params={"vocab_size": vec_count, "hidden_size": vec_width,
+                    "position_embedding_type": "none"},
+            param_count=vec_count * vec_width,
+            notes=(
+                f"Static pre-trained word vectors: {vec_count:,} entries × {vec_width} dims "
+                f"= {vec_count * vec_width / 1e6:.1f}M values.\n"
+                "Loaded from a lookup table at runtime — not updated during training."
+            ),
+        ))
+
+    # One block per pipeline component
+    for comp in pipeline:
+        comp_labels = labels.get(comp, [])
+        n_labels = len(comp_labels) if isinstance(comp_labels, list) else 0
+        block = _spacy_component_block(
+            comp, n_labels,
+            tok2vec_width, tok2vec_depth, tok2vec_embed,
+            tok2vec_window, tok2vec_maxout, tok2vec_subword,
+            comp_labels if isinstance(comp_labels, list) else [],
+            performance,
+        )
+        if comp in disabled:
+            block.notes = (block.notes or "") + "\n[disabled by default]"
+        blocks.append(block)
+
+    # Task inference
+    task = "token-classification"
+    if "textcat" in pipeline or "textcat_multilabel" in pipeline:
+        task = "text-classification"
+    elif pipeline == ["ner"] or pipeline == ["entity_ruler"]:
+        task = "token-classification"
+
+    # Summary performance note on first block
+    perf_parts = []
+    if performance.get("tag_acc"):
+        perf_parts.append(f"POS acc {performance['tag_acc']:.1%}")
+    if performance.get("dep_las"):
+        perf_parts.append(f"dep LAS {performance['dep_las']:.1%}")
+    if performance.get("ents_f"):
+        perf_parts.append(f"NER F1 {performance['ents_f']:.1%}")
+    if performance.get("sents_f"):
+        perf_parts.append(f"senter F1 {performance['sents_f']:.1%}")
+    speed = performance.get("speed", 0)
+    if speed:
+        perf_parts.append(f"{int(speed):,} words/sec")
+
+    display = f"spaCy {lang}_{name}"
+    if version:
+        display += f" v{version}"
+
+    ir = ArchitectureIR(
+        name=model_id,
+        display_name=display,
+        family="spacy",
+        task=task,
+        architectures=[f"spacy.{lang}_{name}"],
+        source=SourceType.HF_CONFIG,
+        source_confidence=SourceConfidence.EXACT,
+        blocks=blocks,
+    )
+    ir.compute = estimate_compute(ir)
+
+    # Attach pipeline-level performance summary to the IR display_name notes
+    # (surfaced in the detail panel)
+    if perf_parts and ir.blocks:
+        ir.blocks[0].notes = (ir.blocks[0].notes or "") + (
+            f"\n\nPipeline performance: {' · '.join(perf_parts)}."
+        )
+
+    return ir
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -1064,6 +1301,8 @@ _FAMILY_PARSERS = {
     # DeepSeek Vision-Language models
     "deepseek_vl_v2": _parse_deepseek_vl_v2,
     "deepseek_vl": _parse_deepseek_vl_v2,
+    # spaCy NLP pipelines (parsed from meta.json)
+    "spacy": _parse_spacy,
 }
 
 
