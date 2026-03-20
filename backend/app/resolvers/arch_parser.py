@@ -1,7 +1,8 @@
 """
 Architecture Parser - converts a raw HuggingFace config dict into an Architecture IR.
 
-Supports: BERT, DistilBERT, RoBERTa, GPT-2, LLaMA, Mistral, Mixtral, T5, Mamba, Falcon.
+Supports: BERT, DistilBERT, RoBERTa, GPT-2, LLaMA, Mistral, Mixtral, T5, Mamba, Falcon,
+          DeepSeekV2/V3, DeepSeek-VL2.
 """
 
 from __future__ import annotations
@@ -542,6 +543,326 @@ def _parse_llama_family(config: dict, model_id: str) -> ArchitectureIR:
 
 
 # ---------------------------------------------------------------------------
+# DeepSeek V2 / V3 / VL-V2
+# ---------------------------------------------------------------------------
+
+
+def _deepseek_lm_param_count(lm_cfg: dict) -> tuple[int, int, int, int, int]:
+    """
+    Return (total_layer_params, final_norm_params, emb_params, lm_head_params, h)
+    for a DeepSeekV2/V3-style config (with optional MoE and MLA).
+    """
+    h = lm_cfg.get("hidden_size", 2048)
+    num_layers = lm_cfg.get("num_hidden_layers", 28)
+    num_heads = lm_cfg.get("num_attention_heads", 16)
+    num_kv_heads = lm_cfg.get("num_key_value_heads", num_heads)
+    vocab_size = lm_cfg.get("vocab_size", 102400)
+    intermediate = lm_cfg.get("intermediate_size", h * 4)
+    moe_intermediate = lm_cfg.get("moe_intermediate_size", 0)
+    n_routed = lm_cfg.get("n_routed_experts", 0)
+    n_shared = lm_cfg.get("n_shared_experts", 0)
+    first_k_dense = lm_cfg.get("first_k_dense_replace", 0)
+    use_mla = lm_cfg.get("use_mla", False)
+    kv_lora_rank = lm_cfg.get("kv_lora_rank") or 0
+    q_lora_rank = lm_cfg.get("q_lora_rank") or 0
+    qk_nope_head_dim = lm_cfg.get("qk_nope_head_dim") or (h // num_heads)
+    qk_rope_head_dim = lm_cfg.get("qk_rope_head_dim") or 0
+    v_head_dim = lm_cfg.get("v_head_dim") or (h // num_heads)
+    head_dim = h // num_heads
+
+    # Attention params per layer
+    if use_mla and kv_lora_rank > 0:
+        # Multi-head Latent Attention: compressed KV representation
+        qk_head_dim = qk_nope_head_dim + qk_rope_head_dim
+        if q_lora_rank:
+            q_params = h * q_lora_rank + q_lora_rank * num_heads * qk_head_dim
+        else:
+            q_params = h * num_heads * qk_head_dim
+        kv_params = h * kv_lora_rank + kv_lora_rank * num_kv_heads * (qk_nope_head_dim + v_head_dim)
+        o_params = num_heads * v_head_dim * h
+        attn_per_layer = q_params + kv_params + o_params
+    else:
+        attn_per_layer = _gqa_params(h, num_heads, num_kv_heads)
+
+    # FFN: dense (SwiGLU = 3 matrices) vs MoE
+    n_dense = min(first_k_dense, num_layers)
+    n_moe = num_layers - n_dense
+    dense_ffn_per_layer = 3 * h * intermediate
+    if n_moe > 0 and n_routed > 0 and moe_intermediate > 0:
+        router = h * n_routed
+        routed = n_routed * 3 * h * moe_intermediate
+        shared = n_shared * 3 * h * moe_intermediate
+        moe_ffn_per_layer = router + routed + shared
+    else:
+        moe_ffn_per_layer = dense_ffn_per_layer  # fallback: treat as dense
+
+    # 2× RMSNorm per layer (pre-attn + pre-ffn), each with `h` weights
+    norm_per_layer = 2 * h
+
+    total_layer = (
+        num_layers * (attn_per_layer + norm_per_layer)
+        + n_dense * dense_ffn_per_layer
+        + n_moe * moe_ffn_per_layer
+    )
+    final_norm = h
+    emb = vocab_size * h
+    lm_head = h * vocab_size
+
+    return total_layer, final_norm, emb, lm_head, h
+
+
+def _parse_deepseek_v2(config: dict, model_id: str) -> ArchitectureIR:
+    """Handles standalone deepseek_v2 / deepseek_v3 language models."""
+    model_type = config.get("model_type", "deepseek_v2")
+    h = config.get("hidden_size", 2048)
+    num_layers = config.get("num_hidden_layers", 28)
+    num_heads = config.get("num_attention_heads", 16)
+    num_kv_heads = config.get("num_key_value_heads", num_heads)
+    vocab_size = config.get("vocab_size", 102400)
+    max_pos = config.get("max_position_embeddings", 4096)
+    n_routed = config.get("n_routed_experts", 0)
+    n_shared = config.get("n_shared_experts", 0)
+    moe_intermediate = config.get("moe_intermediate_size", 0)
+    n_experts_per_tok = config.get("num_experts_per_tok", 0)
+    first_k_dense = config.get("first_k_dense_replace", 0)
+    use_mla = config.get("use_mla", False)
+
+    total_layer, final_norm_p, emb_p, lm_head_p, _ = _deepseek_lm_param_count(config)
+
+    is_moe = n_routed > 0 and moe_intermediate > 0
+    n_dense = min(first_k_dense, num_layers)
+    n_moe = num_layers - n_dense
+
+    emb_block = ArchBlock(
+        id="embed_tokens", label="Token Embeddings", type=BlockType.EMBEDDING,
+        params={"vocab_size": vocab_size, "hidden_size": h, "max_position_embeddings": max_pos,
+                "position_embedding_type": "rope"},
+        param_count=emb_p,
+    )
+
+    stack_notes = None
+    if is_moe:
+        stack_notes = (
+            f"First {n_dense} layer(s) use dense SwiGLU FFN (intermediate_size={config.get('intermediate_size')}).\n"
+            f"Remaining {n_moe} layers use MoE: {n_routed} routed experts + {n_shared} shared experts "
+            f"(top-{n_experts_per_tok} active per token, moe_intermediate_size={moe_intermediate}).\n"
+            f"MLA: {'enabled' if use_mla else 'disabled'}."
+        )
+    stack_label = f"MoE Transformer Decoder ({n_routed} experts)" if is_moe else "Transformer Decoder"
+
+    decoder_block = ArchBlock(
+        id="layers", label=stack_label, type=BlockType.TRANSFORMER_STACK,
+        params={
+            "hidden_size": h, "num_hidden_layers": num_layers,
+            "num_attention_heads": num_heads, "num_key_value_heads": num_kv_heads,
+            "use_mla": use_mla, "is_causal": True,
+            **({"n_routed_experts": n_routed, "n_shared_experts": n_shared,
+                "moe_intermediate_size": moe_intermediate,
+                "num_experts_per_tok": n_experts_per_tok,
+                "first_k_dense_replace": first_k_dense} if is_moe else {}),
+        },
+        # repeat=1 here: param_count is the total for all layers (not per-layer).
+        # num_hidden_layers in params drives KV-cache calculation.
+        repeat=1, children=[],
+        param_count=total_layer + final_norm_p,
+        notes=stack_notes,
+    )
+
+    lm_head_block = ArchBlock(
+        id="lm_head", label="LM Head", type=BlockType.LINEAR,
+        params={"in_features": h, "out_features": vocab_size, "bias": False},
+        param_count=lm_head_p,
+    )
+
+    version_label = "V3" if "v3" in model_type else "V2"
+    ir = ArchitectureIR(
+        name=model_id,
+        display_name=f"DeepSeek-{version_label} ({_approx_billion(emb_p + total_layer + final_norm_p + lm_head_p)})",
+        family=model_type,
+        task="text-generation",
+        architectures=config.get("architectures", []),
+        source=SourceType.HF_CONFIG, source_confidence=SourceConfidence.EXACT,
+        blocks=[emb_block, decoder_block, lm_head_block],
+    )
+    ir.compute = estimate_compute(ir)
+    return ir
+
+
+def _vit_params(layers: int, width: int, mlp_dim: int) -> int:
+    """Approximate ViT transformer block parameter count (weights only, no biases)."""
+    attn = 4 * width * width          # Q, K, V, O projections
+    ffn = 2 * width * mlp_dim         # FC1 + FC2
+    norms = 4 * width                  # 2 × (weight + bias) per LayerNorm
+    return layers * (attn + ffn + norms)
+
+
+def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
+    """Handles deepseek_vl_v2: Vision Encoder + Projector + DeepSeekV2 LM."""
+    lm_cfg = config.get("language_config", config)
+    vis_cfg = config.get("vision_config", {})
+    proj_cfg = config.get("projector_config", {})
+    vis_width_cfg = vis_cfg.get("width", {})
+    mlp_ratio: float = vis_cfg.get("mlp_ratio", 4.0)
+
+    h = lm_cfg.get("hidden_size", 1280)
+    num_layers = lm_cfg.get("num_hidden_layers", 12)
+    num_heads = lm_cfg.get("num_attention_heads", 10)
+    num_kv_heads = lm_cfg.get("num_key_value_heads", num_heads)
+    vocab_size = lm_cfg.get("vocab_size", 129280)
+    max_pos = lm_cfg.get("max_position_embeddings", 8192)
+    n_routed = lm_cfg.get("n_routed_experts", 0)
+    n_shared = lm_cfg.get("n_shared_experts", 0)
+    moe_intermediate = lm_cfg.get("moe_intermediate_size", 0)
+    n_experts_per_tok = lm_cfg.get("num_experts_per_tok", 0)
+    first_k_dense = lm_cfg.get("first_k_dense_replace", 0)
+    use_mla = lm_cfg.get("use_mla", False)
+
+    total_layer, final_norm_p, emb_p, lm_head_p, _ = _deepseek_lm_param_count(lm_cfg)
+
+    # --- Vision encoder blocks ---
+    blocks: list[ArchBlock] = []
+
+    clip_cfg = vis_width_cfg.get("clip-l-14-224", {})
+    clip_p = 0
+    if clip_cfg:
+        cw = clip_cfg.get("width", 1024)
+        cl = clip_cfg.get("layers", 24)
+        cp = clip_cfg.get("patch_size", 14)
+        ci = clip_cfg.get("image_size", 224)
+        clip_mlp = int(cw * mlp_ratio)
+        patch_embed = 3 * cp * cp * cw
+        pos_embed = ((ci // cp) ** 2 + 1) * cw  # class token + patches
+        transformer = _vit_params(cl, cw, clip_mlp)
+        final_ln = 2 * cw
+        clip_p = patch_embed + pos_embed + transformer + final_ln
+        blocks.append(ArchBlock(
+            id="clip_l_vision", label=f"CLIP ViT-L/14 (Vision Encoder)",
+            type=BlockType.TRANSFORMER_STACK,
+            params={"layers": cl, "width": cw, "heads": clip_cfg.get("heads", 16),
+                    "patch_size": cp, "image_size": ci, "mlp_dim": clip_mlp},
+            param_count=clip_p,
+            notes=(
+                f"CLIP ViT-L/14 vision encoder: {cl} transformer layers, width={cw}, "
+                f"mlp_ratio={mlp_ratio:.4f}, patch_size={cp}, image_size={ci}.\n"
+                f"Patch embedding: 3×{cp}×{cp}×{cw} = {patch_embed:,} params.\n"
+                f"Positional embedding: {(ci//cp)**2+1} positions × {cw} = {pos_embed:,} params.\n"
+                f"Transformer: {cl} layers × (4×{cw}² attn + 2×{cw}×{clip_mlp} FFN + norms)"
+                f" = {transformer:,} params."
+            ),
+        ))
+
+    sam_cfg = vis_width_cfg.get("sam_vit_b", {})
+    sam_p = 0
+    if sam_cfg:
+        sw = sam_cfg.get("width", 768)
+        sl = sam_cfg.get("layers", 12)
+        sam_mlp = sw * 4  # standard ViT-B FFN ratio
+        patch_embed = 3 * 16 * 16 * sw  # SAM-ViT uses 16×16 patches
+        transformer = _vit_params(sl, sw, sam_mlp)
+        downsample = sam_cfg.get("downsample_channels", [])
+        neck_p = 0
+        prev = sw
+        for dc in downsample:
+            neck_p += prev * dc + dc
+            prev = dc
+        sam_p = patch_embed + transformer + neck_p
+        blocks.append(ArchBlock(
+            id="sam_vit_b", label="SAM ViT-B (Vision Encoder)",
+            type=BlockType.TRANSFORMER_STACK,
+            params={"layers": sl, "width": sw, "heads": sam_cfg.get("heads", 12),
+                    "downsample_channels": downsample},
+            param_count=sam_p,
+            notes=(
+                f"Segment Anything Model ViT-B: {sl} layers, width={sw}.\n"
+                f"Patch embedding (16×16): 3×16×16×{sw} = {patch_embed:,} params.\n"
+                f"Transformer: {sl} layers × (4×{sw}² attn + 2×{sw}×{sam_mlp} FFN) = {transformer:,}.\n"
+                f"Neck (channel reduction {sw}→{downsample}): {neck_p:,} params."
+            ),
+        ))
+
+    # Projector
+    proj_in = proj_cfg.get("input_dim", 2048)
+    proj_out = proj_cfg.get("n_embed", h)
+    proj_type = proj_cfg.get("projector_type", "linear")
+    proj_p = proj_in * proj_out + proj_out
+    if proj_in > 0:
+        blocks.append(ArchBlock(
+            id="projector", label=f"Vision Projector ({proj_type}: {proj_in}→{proj_out})",
+            type=BlockType.LINEAR,
+            params={"in_features": proj_in, "out_features": proj_out, "bias": True},
+            param_count=proj_p,
+            notes=(
+                f"Projects concatenated vision features ({proj_in}={clip_cfg.get('width',1024)}"
+                f"+{sam_cfg.get('width',1024)}) into LM hidden size ({proj_out})."
+                if clip_cfg and sam_cfg else None
+            ),
+        ))
+
+    # LM blocks
+    n_dense = min(first_k_dense, num_layers)
+    n_moe = num_layers - n_dense
+    is_moe = n_routed > 0 and moe_intermediate > 0
+
+    blocks.append(ArchBlock(
+        id="embed_tokens", label="Token Embeddings", type=BlockType.EMBEDDING,
+        params={"vocab_size": vocab_size, "hidden_size": h, "max_position_embeddings": max_pos,
+                "position_embedding_type": "rope"},
+        param_count=emb_p,
+    ))
+    blocks.append(ArchBlock(
+        id="layers",
+        label=f"LM Decoder (DeepSeekV2-MoE, {n_routed} experts)" if is_moe else "LM Decoder",
+        type=BlockType.TRANSFORMER_STACK,
+        params={
+            "hidden_size": h, "num_hidden_layers": num_layers,
+            "num_attention_heads": num_heads, "num_key_value_heads": num_kv_heads,
+            "use_mla": use_mla, "is_causal": True,
+            **({"n_routed_experts": n_routed, "n_shared_experts": n_shared,
+                "moe_intermediate_size": moe_intermediate,
+                "num_experts_per_tok": n_experts_per_tok,
+                "first_k_dense_replace": first_k_dense} if is_moe else {}),
+        },
+        # repeat=1: param_count stores the all-layers total (mixed dense+MoE layers
+        # cannot be expressed as a single per-layer value × repeat).
+        # num_hidden_layers in params drives KV-cache calculation.
+        repeat=1, children=[],
+        param_count=total_layer + final_norm_p,
+        notes=(
+            f"First {n_dense} layer(s): dense SwiGLU FFN (intermediate_size="
+            f"{lm_cfg.get('intermediate_size')}).\n"
+            f"Remaining {n_moe} layers: MoE FFN with {n_routed} routed experts + {n_shared} shared "
+            f"(top-{n_experts_per_tok} active, moe_intermediate_size={moe_intermediate}).\n"
+            f"All layers use {'MLA' if use_mla else 'standard MHA'} "
+            f"({num_heads} heads, h={h}, head_dim={h // num_heads})."
+        ) if is_moe else None,
+    ))
+    blocks.append(ArchBlock(
+        id="lm_head", label="LM Head", type=BlockType.LINEAR,
+        params={"in_features": h, "out_features": vocab_size, "bias": False},
+        param_count=lm_head_p,
+    ))
+
+    total_all = clip_p + sam_p + proj_p + emb_p + total_layer + final_norm_p + lm_head_p
+    ir = ArchitectureIR(
+        name=model_id,
+        display_name=f"DeepSeek-VL2 ({_approx_billion(total_all)})",
+        family="deepseek_vl_v2",
+        task="image-text-to-text",
+        architectures=config.get("architectures", []),
+        source=SourceType.HF_CONFIG, source_confidence=SourceConfidence.EXACT,
+        blocks=blocks,
+    )
+    ir.compute = estimate_compute(ir)
+    return ir
+
+
+def _approx_billion(n: int) -> str:
+    if n >= 1e9:
+        return f"~{n / 1e9:.1f}B"
+    return f"~{n / 1e6:.0f}M"
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -737,6 +1058,12 @@ _FAMILY_PARSERS = {
     "mamba": _parse_mamba_family,
     "mamba2": _parse_mamba_family,
     "falcon_mamba": _parse_mamba_family,
+    # DeepSeek V2 / V3 language models
+    "deepseek_v2": _parse_deepseek_v2,
+    "deepseek_v3": _parse_deepseek_v2,
+    # DeepSeek Vision-Language models
+    "deepseek_vl_v2": _parse_deepseek_vl_v2,
+    "deepseek_vl": _parse_deepseek_vl_v2,
 }
 
 

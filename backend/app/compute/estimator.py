@@ -176,7 +176,9 @@ def _estimate_kv_cache(
         if not is_causal:
             continue
 
-        num_layers = block.repeat
+        # repeat=1 with num_hidden_layers in params (e.g. DeepSeek mixed-MoE stacks
+        # that store total params in param_count rather than per-layer params)
+        num_layers = p.get("num_hidden_layers", block.repeat)
         h = p.get("hidden_size", 0)
         num_heads = p.get("num_attention_heads", p.get("num_heads", 0))
         if not h or not num_heads:
