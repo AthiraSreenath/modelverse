@@ -152,15 +152,18 @@ async def upload_model_file(file: UploadFile = File(...)):
     """
     Parse an uploaded model file and return its Architecture IR.
 
-    Reads only the header/metadata — model weights are never loaded.
-    Supported formats: .safetensors, .gguf, .json (HF config), .bin/.pt/.pth
+    Only metadata / tensor shapes are extracted — weights are never loaded.
+    Supported: .safetensors, .gguf, .json (HF config), .bin/.pt/.pth, .onnx
 
-    For large GGUF / safetensors files: only the first 32 MB are read
-    (sufficient for any metadata header).
+    Files are streamed to a temp file first so parsers can use random-access
+    reads (required for ONNX) without loading the whole file into RAM.
+    Max upload: 4 GB.
     """
+    import tempfile
+    from pathlib import Path as _P
+
     filename = file.filename or "uploaded_model"
-    from pathlib import Path
-    ext = Path(filename).suffix.lower()
+    ext = _P(filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
         exts = ", ".join(sorted(SUPPORTED_EXTENSIONS))
         raise HTTPException(
@@ -168,22 +171,37 @@ async def upload_model_file(file: UploadFile = File(...)):
             detail=f"Unsupported format '{ext}'. Supported: {exts}",
         )
 
-    # Read only the header portion — we never need tensor data, only shapes.
-    # ONNX graph metadata (initializer names/dims) can be spread further into
-    # the file than safetensors/GGUF, so we allow a larger slice for .onnx.
-    from pathlib import Path as _Path
-    _ext = _Path(filename).suffix.lower()
-    MAX_HEADER_BYTES = (128 if _ext == ".onnx" else 32) * 1024 * 1024
-    data = await file.read(MAX_HEADER_BYTES)
+    MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024  # 4 GB hard cap
+    CHUNK = 1024 * 1024  # 1 MB read chunks
 
+    # Stream upload → temp file (no full in-memory copy for large models)
+    tmp_path: _P | None = None
     try:
-        ir_dict = parse_uploaded_file(data, filename)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            tmp_path = _P(tmp.name)
+            total = 0
+            while True:
+                chunk = await file.read(CHUNK)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="File too large (max 4 GB).")
+                tmp.write(chunk)
+
+        ir_dict = parse_uploaded_file(tmp_path, filename)
         return ir_dict
+
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception("Error parsing uploaded file '%s'", filename)
         raise HTTPException(status_code=500, detail=f"Parse error: {e}")
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
 
 
 @app.get("/formats", response_model=list[str])

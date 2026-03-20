@@ -38,22 +38,27 @@ SUPPORTED_EXTENSIONS = frozenset({
 })
 
 
-def parse_uploaded_file(data: bytes, filename: str) -> dict:
+def parse_uploaded_file(path: Path, filename: str) -> dict:
     """
-    Parse raw bytes from an uploaded model file and return a serialised
-    ArchitectureIR dict.  Raises ValueError with a human-readable message on
-    unsupported or malformed input.
+    Parse a model file saved at *path* and return a serialised ArchitectureIR
+    dict.  Raises ValueError with a human-readable message on unsupported or
+    malformed input.
+
+    The file is read lazily — only the metadata / shape header is loaded,
+    never the full tensor data.
     """
     ext = Path(filename).suffix.lower()
     stem = Path(filename).stem
 
     if ext == ".safetensors":
+        data = _read_header_bytes(path, 32 * 1024 * 1024)
         config = _parse_safetensors(data, stem)
     elif ext == ".gguf":
+        data = _read_header_bytes(path, 64 * 1024 * 1024)
         config = _parse_gguf(data, stem)
     elif ext == ".json":
         try:
-            config = json.loads(data)
+            config = json.loads(path.read_bytes())
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON: {e}") from e
         if "model_type" not in config:
@@ -63,19 +68,24 @@ def parse_uploaded_file(data: bytes, filename: str) -> dict:
                 "Tip: download config.json from the model repo on huggingface.co."
             )
     elif ext in (".bin", ".pt", ".pth"):
+        data = _read_header_bytes(path, 32 * 1024 * 1024)
         config = _parse_pytorch(data, stem)
     elif ext == ".onnx":
-        config = _parse_onnx(data, stem)
+        config = _parse_onnx_path(path, stem)
     else:
         exts = ", ".join(sorted(SUPPORTED_EXTENSIONS))
-        raise ValueError(
-            f"Unsupported format '{ext}'. Supported: {exts}"
-        )
+        raise ValueError(f"Unsupported format '{ext}'. Supported: {exts}")
 
     ir = parse_hf_config(config, stem)
     ir.source = SourceType.FILE_HEADER
     ir.source_confidence = SourceConfidence.HIGH
     return ir.model_dump()
+
+
+def _read_header_bytes(path: Path, max_bytes: int) -> bytes:
+    """Read up to max_bytes from the start of a file."""
+    with open(path, "rb") as f:
+        return f.read(max_bytes)
 
 
 # ---------------------------------------------------------------------------
@@ -475,50 +485,55 @@ def _onnx_parse_tensor_proto(data: bytes, start: int, end: int) -> tuple[str, li
     return name, dims
 
 
-def _parse_onnx(data: bytes, stem: str) -> dict:
+def _parse_onnx_path(path: Path, stem: str) -> dict:
     """
-    Parse an ONNX protobuf model.  Extracts weight initializer names + shapes
-    to reconstruct a pseudo config.json.  No deps required.
+    Parse an ONNX model from a file path.
 
     Strategy:
-      1. Try `import onnx` for a clean parse (if installed).
-      2. Fall back to a hand-rolled protobuf field scanner.
+      1. `onnx.load(path)` — reliable, memory-maps the file, handles any size.
+      2. Fallback lightweight protobuf scanner (no extra deps).
     """
-    # --- Strategy 1: onnx package ---
+    # --- Strategy 1: onnx package (preferred) ---
     try:
         import onnx  # type: ignore
-        model = onnx.load_from_string(bytes(data))
-        shapes: dict[str, list[int]] = {}
-        for init in model.graph.initializer:
-            shapes[init.name] = list(init.dims)
+        model = onnx.load(str(path))
+        shapes: dict[str, list[int]] = {
+            init.name: list(init.dims)
+            for init in model.graph.initializer
+            if init.dims  # skip scalars
+        }
+        # Also collect value_info shapes (graph inputs/outputs with type info)
+        for vi in list(model.graph.input) + list(model.graph.value_info):
+            try:
+                t = vi.type.tensor_type
+                dims = [d.dim_value for d in t.shape.dim]
+                if vi.name and dims:
+                    shapes.setdefault(vi.name, dims)
+            except Exception:
+                continue
         if not shapes:
-            raise ValueError("ONNX model has no initializers (weights).")
+            raise ValueError(
+                "ONNX model has no weight initializers. "
+                "This may be an opset-only or skeleton model."
+            )
         return _infer_config_from_shapes(shapes, stem)
     except ImportError:
-        pass
+        pass  # fall through to protobuf scanner
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Could not parse ONNX model: {e}") from e
 
     # --- Strategy 2: lightweight protobuf scanner (no deps) ---
-    # Check magic: ONNX files start with protobuf — field 1 (ir_version) varint
-    # or field 7 (graph) length-delimited.  There's no fixed magic bytes,
-    # but valid ONNX is always a protobuf.
+    data = _read_header_bytes(path, 128 * 1024 * 1024)
     if len(data) < 4:
         raise ValueError("File too small to be a valid ONNX model.")
-
     try:
         shapes = _onnx_scan_initializers(data)
     except Exception as e:
-        raise ValueError(
-            f"Could not parse ONNX protobuf: {e}. "
-            "Install the `onnx` package for more reliable parsing: pip install onnx"
-        ) from e
-
+        raise ValueError(f"Could not parse ONNX protobuf: {e}") from e
     if not shapes:
-        raise ValueError(
-            "No weight initializers found in ONNX file. "
-            "The model may be in a format that requires the `onnx` package to parse."
-        )
+        raise ValueError("No weight initializers found in ONNX file.")
     return _infer_config_from_shapes(shapes, stem)
 
 
