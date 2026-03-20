@@ -837,22 +837,24 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
             ),
         ))
 
-    # ── Fusion: concatenate both vision streams ────────────────────────────────
+    # ── Fusion: merge both vision streams ─────────────────────────────────────
     proj_in = proj_cfg.get("input_dim", 2048)
     if clip_p and sam_p:
         blocks.append(ArchBlock(
             id="vision_fusion",
-            label=f"Feature Fusion (Concat: {clip_out_dim} + {sam_out_dim} → {proj_in})",
+            label=f"Vision Feature Fusion → {proj_in}-d",
             type=BlockType.ADD,
-            params={"operation": "concat", "clip_dim": clip_out_dim,
-                    "sam_dim": sam_out_dim, "output_dim": proj_in},
+            params={"output_dim": proj_in,
+                    "clip_branch_width": clip_out_dim,
+                    "sam_branch_width": sam_out_dim},
             param_count=0,
             notes=(
-                "The two parallel vision streams are CONCATENATED along the feature dimension — "
-                "NOT stacked sequentially.\n"
-                f"CLIP output ({clip_out_dim} dims) ││ SAM output ({sam_out_dim} dims) "
-                f"→ {proj_in} dims.\n"
-                "No learned parameters in this operation."
+                f"The two parallel vision branches are merged into a {proj_in}-d fused representation.\n\n"
+                f"The config specifies projector input_dim={proj_in} and the two vision branches have "
+                f"widths {clip_out_dim} (CLIP) and {sam_out_dim} (SAM after neck). "
+                f"The exact fusion mechanism (concat, add, or learned) is not fully specified in the "
+                f"config — the {proj_in}-d output is what the config guarantees.\n\n"
+                "No learned parameters in this fusion step itself."
             ),
         ))
 
@@ -904,30 +906,43 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         repeat=1, children=[],
         param_count=total_layer + final_norm_p,
         notes=(
-            f"⚠️  Two distinct parameter counts for MoE:\n"
-            f"  • Stored (model file size): {(total_stored_lm)/1e9:.2f}B — all {n_routed} experts "
-            f"are saved to disk.\n"
-            f"  • Active per token: {active_lm/1e9:.2f}B — only top-{n_experts_per_tok} of "
-            f"{n_routed} routed experts compute on each token; the rest are idle.\n\n"
+            f"MoE — two distinct parameter views:\n"
+            f"  • Stored / total params: {(total_stored_lm)/1e9:.2f}B "
+            f"(all {n_routed} routed + {n_shared} shared experts saved to disk)\n"
+            f"  • Active params per token: {active_lm/1e9:.2f}B "
+            f"(only top-{n_experts_per_tok} of {n_routed} routed experts compute; "
+            f"the remaining {n_routed - n_experts_per_tok} are idle each step)\n\n"
             f"Layer breakdown ({num_layers} total):\n"
-            f"  • Layer 0–{n_dense-1}: dense SwiGLU FFN (intermediate_size="
-            f"{lm_cfg.get('intermediate_size')}).\n"
-            f"  • Layers {n_dense}–{num_layers-1}: MoE FFN — {n_routed} routed experts + "
-            f"{n_shared} shared experts always active (moe_intermediate_size={moe_intermediate}).\n\n"
-            f"Attention: {'MLA (Multi-head Latent)' if use_mla else 'standard MHA'} — "
-            f"{num_heads} heads, h={h}, head_dim={h // num_heads}."
+            f"  • Layer{'s' if n_dense > 1 else ''} 0–{max(n_dense-1,0)}: "
+            f"dense SwiGLU FFN (intermediate_size={lm_cfg.get('intermediate_size')})\n"
+            f"  • Layers {n_dense}–{num_layers-1}: MoE FFN "
+            f"({n_routed} routed experts, {n_shared} shared always-on, "
+            f"moe_intermediate_size={moe_intermediate})\n\n"
+            f"Attention: {'MLA (Multi-head Latent Attention)' if use_mla else 'standard MHA'}, "
+            f"{num_heads} heads, hidden={h}, head_dim={h // num_heads}."
         ) if is_moe else None,
     ))
+    _lm_head_tied = not lm_cfg.get("lm_head", True)  # lm_head:true → separate weights
     blocks.append(ArchBlock(
         id="lm_head", label="LM Head", type=BlockType.LINEAR,
         params={"in_features": h, "out_features": vocab_size, "bias": False},
-        param_count=lm_head_p,
+        param_count=0 if _lm_head_tied else lm_head_p,
+        notes=(
+            f"Separate (not weight-tied) linear projection: h={h} → vocab={vocab_size:,}.\n"
+            f"config lm_head=true means this head has its own {lm_head_p/1e6:.1f}M parameters, "
+            f"distinct from the token embedding table.\n"
+            f"Both are counted separately in the total above."
+        ) if not _lm_head_tied else (
+            "Weight-tied to the token embedding table — no additional parameters stored."
+        ),
     ))
 
+    # ── Display name: prefer _name_or_path model slug over generic family ──────
+    _slug = (config.get("_name_or_path") or "").split("/")[-1] or "DeepSeek-VL2"
     total_all = clip_p + sam_p + proj_p + emb_p + total_layer + final_norm_p + lm_head_p
     ir = ArchitectureIR(
         name=model_id,
-        display_name=f"DeepSeek-VL2 ({_approx_billion(total_all)} stored)",
+        display_name=f"{_slug} ({_approx_billion(total_all)} stored · DeepSeek-VL2 backbone)",
         family="deepseek_vl_v2",
         task="image-text-to-text",
         architectures=config.get("architectures", []),
