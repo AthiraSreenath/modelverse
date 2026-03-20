@@ -168,9 +168,12 @@ async def upload_model_file(file: UploadFile = File(...)):
             detail=f"Unsupported format '{ext}'. Supported: {exts}",
         )
 
-    # Read only the first 32 MB — enough for any header / config file.
-    # For full weights we only ever need the header, not the tensor data.
-    MAX_HEADER_BYTES = 32 * 1024 * 1024
+    # Read only the header portion — we never need tensor data, only shapes.
+    # ONNX graph metadata (initializer names/dims) can be spread further into
+    # the file than safetensors/GGUF, so we allow a larger slice for .onnx.
+    from pathlib import Path as _Path
+    _ext = _Path(filename).suffix.lower()
+    MAX_HEADER_BYTES = (128 if _ext == ".onnx" else 32) * 1024 * 1024
     data = await file.read(MAX_HEADER_BYTES)
 
     try:

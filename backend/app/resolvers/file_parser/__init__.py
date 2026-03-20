@@ -531,26 +531,37 @@ def _onnx_scan_initializers(data: bytes) -> dict[str, list[int]]:
         field 4 (wire 2) = initializer (TensorProto)
           field 1 (wire 0 or 2) = dims
           field 3 (wire 2)      = name
+
+    Truncation-safe: stops cleanly if we hit the end of a partial read.
     """
     shapes: dict[str, list[int]] = {}
 
-    # Find the graph field (field 7) in the top-level ModelProto
+    # Find the graph field (field 7) in the top-level ModelProto.
+    # Iterate defensively — a truncated file will raise ValueError which we catch.
     graph_start = graph_end = -1
-    for fnum, wire, ps, pe in _proto_iter_fields(data, 0, len(data)):
-        if fnum == 7 and wire == 2:
-            graph_start, graph_end = ps, pe
-            break
+    try:
+        for fnum, wire, ps, pe in _proto_iter_fields(data, 0, len(data)):
+            if fnum == 7 and wire == 2:
+                graph_start, graph_end = ps, pe
+                break
+    except (ValueError, struct.error):
+        pass
 
     if graph_start < 0:
-        # Might be a graph directly (some exporters skip ModelProto wrapper)
         graph_start, graph_end = 0, len(data)
 
-    # Scan initializers (field 4) inside the graph
-    for fnum, wire, ps, pe in _proto_iter_fields(data, graph_start, graph_end):
-        if fnum == 4 and wire == 2:
-            name, dims = _onnx_parse_tensor_proto(data, ps, pe)
-            if name and dims:
-                shapes[name] = dims
+    # Scan initializers (field 4) inside the graph — stop gracefully on truncation
+    try:
+        for fnum, wire, ps, pe in _proto_iter_fields(data, graph_start, graph_end):
+            if fnum == 4 and wire == 2:
+                try:
+                    name, dims = _onnx_parse_tensor_proto(data, ps, pe)
+                    if name and dims:
+                        shapes[name] = dims
+                except (ValueError, struct.error):
+                    continue  # skip this initializer, keep going
+    except (ValueError, struct.error):
+        pass  # truncation — use whatever we parsed so far
 
     return shapes
 
