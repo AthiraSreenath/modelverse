@@ -32,22 +32,19 @@ export default function SearchBar() {
     irHistory,
   } = useStore();
 
-  // ── Hub mode state ────────────────────────────────────────────────────────
-  const [query, setQuery]                 = useState("");
-  const [suggestions, setSuggestions]     = useState<string[]>([]);
-  const [showSugg, setShowSugg]           = useState(false);
+  const [query, setQuery]                   = useState("");
+  const [suggestions, setSuggestions]       = useState<string[]>([]);
+  const [showSugg, setShowSugg]             = useState(false);
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef    = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Upload mode state ─────────────────────────────────────────────────────
-  const [mode, setMode]           = useState<Mode>("hub");
-  const [dragOver, setDragOver]   = useState(false);
+  const [mode, setMode]               = useState<Mode>("hub");
+  const [dragOver, setDragOver]       = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadedName, setUploadedName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Cycle placeholders
   useEffect(() => {
     const id = setInterval(
       () => setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_CYCLE.length),
@@ -56,19 +53,15 @@ export default function SearchBar() {
     return () => clearInterval(id);
   }, []);
 
-  // Load prebaked suggestions
   useEffect(() => {
     listPrebaked().then(setSuggestions).catch(() => {});
   }, []);
 
   const filteredSugg =
     query.length > 1
-      ? suggestions
-          .filter((s) => s.toLowerCase().includes(query.toLowerCase()))
-          .slice(0, 6)
+      ? suggestions.filter((s) => s.toLowerCase().includes(query.toLowerCase())).slice(0, 6)
       : [];
 
-  // ── Hub resolve ───────────────────────────────────────────────────────────
   const resolveHub = async (input: string) => {
     const q = input.trim();
     if (!q) return;
@@ -85,12 +78,6 @@ export default function SearchBar() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    resolveHub(query);
-  };
-
-  // ── File upload ───────────────────────────────────────────────────────────
   const handleFile = useCallback(
     async (file: File) => {
       setUploadError(null);
@@ -109,72 +96,68 @@ export default function SearchBar() {
     [setIR]
   );
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  };
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-    // Reset so the same file can be re-uploaded
-    e.target.value = "";
-  };
-
-  const busy = isResolving || isUploading;
+  const busy  = isResolving || isUploading;
   const error = mode === "hub" ? resolveError : uploadError;
 
+  const switchMode = (m: Mode) => {
+    setMode(m);
+    setUploadError(null);
+    setResolveError(null);
+    if (m === "hub") setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
   return (
-    <div className="relative flex items-center gap-2 w-full max-w-2xl">
+    <div className="relative flex items-center gap-2 w-full max-w-xl">
 
-      {/* ── Mode tabs ──────────────────────────────────────────────────── */}
-      <div className="flex flex-shrink-0 rounded-lg bg-slate-800 border border-slate-700 p-0.5 gap-0.5">
-        <button
-          type="button"
-          onClick={() => { setMode("hub"); setUploadError(null); }}
-          className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap",
-            mode === "hub"
-              ? "bg-indigo-600 text-white shadow-sm"
-              : "text-slate-400 hover:text-white"
-          )}
-        >
-          <CloudDownload className="w-3 h-3" />
-          HF Hub
-        </button>
-        <button
-          type="button"
-          onClick={() => { setMode("upload"); setResolveError(null); }}
-          className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap",
-            mode === "upload"
-              ? "bg-indigo-600 text-white shadow-sm"
-              : "text-slate-400 hover:text-white"
-          )}
-        >
-          <Upload className="w-3 h-3" />
-          Upload File
-        </button>
-      </div>
-
-      {/* ── Hub search ─────────────────────────────────────────────────── */}
-      {mode === "hub" && (
-        <form onSubmit={handleSubmit} className="flex-1 relative">
-          <div
+      {/* ── Unified input bar ─────────────────────────────────────────── */}
+      <div
+        className={cn(
+          "flex-1 flex items-stretch rounded-xl border bg-slate-800/80 backdrop-blur h-10 overflow-hidden transition-all",
+          error
+            ? "border-red-500/60"
+            : "border-slate-700 focus-within:border-indigo-500/60"
+        )}
+      >
+        {/* Mode toggle — left side of bar */}
+        <div className="flex items-stretch flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => switchMode("hub")}
             className={cn(
-              "flex items-center gap-2 rounded-xl border bg-slate-800/80 backdrop-blur px-3 h-10 transition-all",
-              resolveError
-                ? "border-red-500/60"
-                : "border-slate-700 focus-within:border-indigo-500/60"
+              "flex items-center gap-1.5 px-2.5 text-xs font-medium transition-colors border-r border-slate-700",
+              mode === "hub"
+                ? "bg-indigo-600 text-white"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
             )}
           >
-            {isResolving ? (
-              <Loader2 className="w-4 h-4 text-slate-400 flex-shrink-0 animate-spin" />
-            ) : (
-              <Search className="w-4 h-4 text-slate-500 flex-shrink-0" />
+            <CloudDownload className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">HF Hub</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode("upload")}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 text-xs font-medium transition-colors border-r border-slate-700",
+              mode === "upload"
+                ? "bg-indigo-600 text-white"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
             )}
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Upload</span>
+          </button>
+        </div>
+
+        {/* ── Hub input ───────────────────────────────────────────────── */}
+        {mode === "hub" && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); resolveHub(query); }}
+            className="flex-1 flex items-center px-3 gap-2"
+          >
+            {isResolving
+              ? <Loader2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 animate-spin" />
+              : <Search className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+            }
             <input
               ref={inputRef}
               type="text"
@@ -198,82 +181,81 @@ export default function SearchBar() {
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
-          </div>
+          </form>
+        )}
 
-          {/* Suggestions dropdown */}
-          {showSugg && filteredSugg.length > 0 && (
-            <div className="absolute top-full mt-1 left-0 right-0 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-50">
-              {filteredSugg.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onMouseDown={() => { setQuery(s); resolveHub(s); }}
-                  className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2 transition-colors"
-                >
-                  <Search className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-        </form>
-      )}
-
-      {/* ── File upload ─────────────────────────────────────────────────── */}
-      {mode === "upload" && (
-        <div className="flex-1 relative">
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept={SUPPORTED_EXTS.join(",")}
-            onChange={handleFileInput}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            disabled={busy}
-            className={cn(
-              "w-full flex items-center gap-3 rounded-xl border px-3 h-10 text-sm transition-all cursor-pointer",
-              dragOver
-                ? "border-indigo-400 bg-indigo-500/10 text-indigo-300"
-                : uploadError
-                ? "border-red-500/60 bg-slate-800/80 text-red-400"
-                : uploadedName
-                ? "border-emerald-500/50 bg-slate-800/80 text-emerald-400"
-                : "border-slate-700 bg-slate-800/80 text-slate-400 hover:border-indigo-500/50 hover:text-slate-300"
-            )}
-          >
-            {isUploading ? (
-              <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
-            ) : uploadedName ? (
-              <FileText className="w-4 h-4 flex-shrink-0" />
-            ) : (
-              <Upload className="w-4 h-4 flex-shrink-0" />
-            )}
-            <span className="flex-1 text-left truncate">
+        {/* ── Upload drop zone ────────────────────────────────────────── */}
+        {mode === "upload" && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept={SUPPORTED_EXTS.join(",")}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFile(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const f = e.dataTransfer.files[0];
+                if (f) handleFile(f);
+              }}
+              disabled={busy}
+              className={cn(
+                "flex-1 flex items-center gap-2 px-3 text-sm transition-colors text-left",
+                dragOver
+                  ? "bg-indigo-500/10 text-indigo-300"
+                  : uploadError
+                  ? "text-red-400"
+                  : uploadedName
+                  ? "text-emerald-400"
+                  : "text-slate-400 hover:text-slate-300"
+              )}
+            >
               {isUploading
-                ? "Parsing file…"
+                ? <Loader2 className="w-3.5 h-3.5 flex-shrink-0 animate-spin" />
                 : uploadedName
-                ? uploadedName
-                : dragOver
-                ? "Drop to parse"
-                : "Drop file or click to browse"}
-            </span>
-            {/* Format badges */}
-            {!uploadedName && !isUploading && (
-              <span className="flex-shrink-0 text-xs text-slate-600 hidden sm:block">
-                {SUPPORTED_EXTS.slice(0, 3).join(" · ")} …
+                ? <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                : <Upload className="w-3.5 h-3.5 flex-shrink-0" />
+              }
+              <span className="truncate">
+                {isUploading  ? "Parsing…"
+                 : uploadedName ? uploadedName
+                 : dragOver    ? "Drop to parse"
+                 : `Drop or browse — ${SUPPORTED_EXTS.slice(0,3).join(", ")} …`}
               </span>
-            )}
-          </button>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* ── Suggestions dropdown ──────────────────────────────────────── */}
+      {mode === "hub" && showSugg && filteredSugg.length > 0 && (
+        <div className="absolute top-full mt-1 left-0 right-0 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-50">
+          {filteredSugg.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onMouseDown={() => { setQuery(s); resolveHub(s); }}
+              className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white flex items-center gap-2 transition-colors"
+            >
+              <Search className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+              {s}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* ── Undo button ─────────────────────────────────────────────────── */}
+      {/* ── Undo ─────────────────────────────────────────────────────── */}
       {canUndo && (
         <button
           onClick={undoIR}
@@ -284,7 +266,7 @@ export default function SearchBar() {
         </button>
       )}
 
-      {/* ── Error banner ─────────────────────────────────────────────────── */}
+      {/* ── Error ────────────────────────────────────────────────────── */}
       {error && !(mode === "hub" && showSugg && filteredSugg.length > 0) && (
         <div className="absolute top-full mt-1 left-0 right-0 text-xs text-red-400 bg-red-400/5 border border-red-400/20 rounded-lg px-3 py-2 z-50">
           {error}
