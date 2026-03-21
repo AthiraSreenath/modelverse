@@ -316,7 +316,7 @@ async def parse_multimodal_with_llm(
                 ),
             )
             return ArchitectureIR(
-                model_id=model_id,
+                name=model_id,
                 display_name=model_id.split("/")[-1],
                 family="multimodal",
                 task="unknown",
@@ -334,7 +334,7 @@ async def parse_multimodal_with_llm(
     model_type = config.get("model_type", "multimodal")
 
     return ArchitectureIR(
-        model_id=model_id,
+        name=model_id,
         display_name=name,
         family=model_type,
         task="image-to-text",
