@@ -142,11 +142,13 @@ class ArchBlock(BaseModel):
     unknown_fields: list[str] = Field(default_factory=list)  # fields we couldn't determine
 
     # ── Layout hints (optional, only used for non-linear graphs) ─────────────
-    # same_row_as: place this block at the same Y as the named block, offset to
-    #   the right.  Used for parallel branches (e.g. CLIP and SAM in VLMs).
-    # merge_from: explicit list of source block IDs for this block's incoming
-    #   edges.  Overrides the default "connect from previous block" behaviour.
-    #   An empty list [] means "no auto-connect; this block starts a branch".
+    # layout_column: which visual column this block occupies.
+    #   0 = main/left column (default for all models)
+    #   1 = secondary/right column (e.g. vision branch of a VLM)
+    # same_row_as: place alongside this block at the same Y, offset to the right.
+    # merge_from: explicit incoming edge list; overrides auto-connect.
+    #   [] = branch start with no incoming edges.
+    layout_column: int = 0
     same_row_as: str | None = None
     merge_from: list[str] | None = None
 

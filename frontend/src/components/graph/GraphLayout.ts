@@ -1,12 +1,31 @@
 /**
  * Converts ArchitectureIR blocks into React Flow nodes + edges.
- * Uses a simple top-down layout (no Dagre needed for linear architectures).
  *
- * Layout hints on ArchBlock drive non-linear graphs:
- *   same_row_as  — place this block alongside (same Y, offset X) a named block.
- *                  Used for parallel branches (e.g. CLIP ‖ SAM in VLMs).
- *   merge_from   — explicit incoming edge sources; overrides auto-connect.
- *                  Empty array = branch start (no incoming edges).
+ * Default: top-down single-column layout for standard transformer models.
+ *
+ * Multi-column layout (VLMs etc.) driven by ArchBlock layout hints:
+ *   layout_column  — which horizontal column a block lives in.
+ *                    col 0 = left/main, col 1 = right/vision, etc.
+ *                    Each column has its own independent y cursor.
+ *   same_row_as    — place this block at the same Y as the named block,
+ *                    offset to the right. Used for CLIP ‖ SAM etc.
+ *   merge_from     — explicit incoming edge list. Overrides auto-connect.
+ *                    [] = branch start (no incoming edge).
+ *
+ * Result for a 2-col VLM:
+ *
+ *   col 0 (x=0)          col 1 (x=280)
+ *   [Token Embeddings]   [CLIP ViT-L/14]  [SAM ViT-B]
+ *          │              ╲              ╱
+ *          │               [Feat Fusion]
+ *          │               [Vis Projector]
+ *          │              ╱
+ *   [LM Decoder] ◄────────
+ *   [Final Norm]
+ *   [LM Head]
+ *
+ * Every edge from col 0 to LM Decoder runs down the LEFT column,
+ * cleanly separated from the vision branch on the right.
  */
 
 import type { Node, Edge } from "@xyflow/react";
@@ -15,13 +34,13 @@ import type { BlockNodeData } from "./nodes/BlockNode";
 import type { RepeatLabelData } from "./nodes/RepeatLabelNode";
 
 const NODE_WIDTH    = 240;
-const NODE_HEIGHT   = 64;
-const VERT_GAP      = 24;
-const PARALLEL_GAP  = 20;   // horizontal gap between side-by-side parallel blocks
+const NODE_HEIGHT   = 80;    // generous — nodes are variable height; this is min spacing
+const VERT_GAP      = 32;    // vertical gap between consecutive blocks in a column
+const COL_MARGIN    = 40;    // horizontal gap between columns
+const PARALLEL_GAP  = 20;    // gap between same_row_as siblings within a column
 const CHILD_X_OFFSET  = 280;
 const CHILD_VERT_GAP  = 12;
 
-/** Get block IDs that appear in the diff */
 function getDiffedBlockIds(diff: DiffEntry[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const entry of diff) {
@@ -30,11 +49,7 @@ function getDiffedBlockIds(diff: DiffEntry[]): Map<string, number> {
     if (blockId) {
       const oldVal = typeof entry.old === "number" ? entry.old : null;
       const newVal = typeof entry.new === "number" ? entry.new : null;
-      if (oldVal !== null && newVal !== null) {
-        map.set(blockId, newVal - oldVal);
-      } else {
-        map.set(blockId, 0);
-      }
+      map.set(blockId, oldVal !== null && newVal !== null ? newVal - oldVal : 0);
     }
   }
   return map;
@@ -49,51 +64,59 @@ export function buildGraphElements(
   const edges: Edge[] = [];
   const diffedIds = getDiffedBlockIds(diff);
 
-  let y = 0;
-  let prevId: string | null = null;
-
-  // Track placed position of each top-level block for layout hints
+  // Per-column state
+  const yByCol    = new Map<number, number>();   // y cursor per column
+  const prevByCol = new Map<number, string | null>(); // last block id per column
+  // Per-block position lookup (for merge_from / same_row_as)
   const yById = new Map<string, number>();
   const xById = new Map<string, number>();
 
-  function addBlock(
-    block: ArchBlock,
-    x: number,
-    parentId?: string
-  ): number {
-    const isExpanded = expandedBlockIds.has(block.id);
-    const isDiffed = diffedIds.has(block.id);
-    const diffDelta = diffedIds.get(block.id);
+  const getColY    = (col: number) => yByCol.get(col) ?? 0;
+  const getColPrev = (col: number) => prevByCol.get(col) ?? null;
+
+  function addTopLevelBlock(block: ArchBlock): void {
+    const col: number = typeof block.layout_column === "number" ? block.layout_column : 0;
+    const colPrev = getColPrev(col);
+    const colY    = getColY(col);
 
     // ── Determine position ──────────────────────────────────────────────────
-    let blockX = x;
-    let blockY = y;
+    let blockX: number;
+    let blockY: number;
+    let isSidecar = false;  // same_row_as blocks don't advance their column
 
-    if (!parentId && block.same_row_as) {
-      // Parallel sibling: place at same Y as the referenced block, offset right
-      const refY = yById.get(block.same_row_as) ?? y;
-      const refX = xById.get(block.same_row_as) ?? 0;
-      // Stack siblings further right if the referenced block itself was a sibling
+    if (block.same_row_as) {
+      // Parallel sibling: same Y as the referenced block, shifted right
+      const refY = yById.get(block.same_row_as) ?? colY;
+      const refX = xById.get(block.same_row_as) ?? col * (NODE_WIDTH + COL_MARGIN);
       blockX = refX + NODE_WIDTH + PARALLEL_GAP;
       blockY = refY;
-    } else if (!parentId && block.merge_from != null) {
-      // Convergence point: sit below the deepest of its sources
-      let maxSourceBottom = 0;
+      isSidecar = true;
+
+    } else if (block.merge_from != null) {
+      // Convergence: place below the deepest source block
+      let maxBottom = 0;
       for (const srcId of block.merge_from) {
-        const srcY = yById.get(srcId) ?? 0;
-        maxSourceBottom = Math.max(maxSourceBottom, srcY + NODE_HEIGHT);
+        maxBottom = Math.max(maxBottom, (yById.get(srcId) ?? 0) + NODE_HEIGHT);
       }
-      blockY = Math.max(y, maxSourceBottom + VERT_GAP);
-      blockX = 0;
+      blockY = Math.max(colY, maxBottom + VERT_GAP);
+      blockX = col * (NODE_WIDTH + COL_MARGIN);
+
+    } else {
+      // Normal column placement
+      blockY = colY;
+      blockX = col * (NODE_WIDTH + COL_MARGIN);
     }
 
-    const nodeData: BlockNodeData = {
-      block,
-      isExpanded,
-      isDiffed,
-      diffDelta,
-    };
+    // ── Record position before placing ─────────────────────────────────────
+    yById.set(block.id, blockY);
+    xById.set(block.id, blockX);
 
+    // ── Place node ──────────────────────────────────────────────────────────
+    const isExpanded = expandedBlockIds.has(block.id);
+    const isDiffed   = diffedIds.has(block.id);
+    const diffDelta  = diffedIds.get(block.id);
+
+    const nodeData: BlockNodeData = { block, isExpanded, isDiffed, diffDelta };
     nodes.push({
       id: block.id,
       type: "blockNode",
@@ -102,58 +125,43 @@ export function buildGraphElements(
       style: { width: NODE_WIDTH },
     });
 
-    const nodeBottomY = blockY + NODE_HEIGHT;
-
-    // ── Edges ───────────────────────────────────────────────────────────────
-    if (!parentId) {
-      if (block.merge_from != null) {
-        // Explicit multi-source edges
-        for (const srcId of block.merge_from) {
-          edges.push({
-            id: `${srcId}->${block.id}`,
-            source: srcId,
-            target: block.id,
-            type: "smoothstep",
-            style: { stroke: "#475569", strokeWidth: 1.5 },
-          });
-        }
-      } else if (!block.same_row_as && prevId) {
-        // Normal linear auto-connect (skip for parallel siblings)
+    // ── Draw incoming edges ─────────────────────────────────────────────────
+    if (block.merge_from != null) {
+      // Explicit multi-source edges
+      for (const srcId of block.merge_from) {
         edges.push({
-          id: `${prevId}->${block.id}`,
-          source: prevId,
+          id: `${srcId}->${block.id}`,
+          source: srcId,
           target: block.id,
           type: "smoothstep",
           style: { stroke: "#475569", strokeWidth: 1.5 },
         });
       }
+    } else if (!isSidecar && colPrev) {
+      // Auto-connect from previous block in this column
+      edges.push({
+        id: `${colPrev}->${block.id}`,
+        source: colPrev,
+        target: block.id,
+        type: "smoothstep",
+        style: { stroke: "#475569", strokeWidth: 1.5 },
+      });
     }
 
-    // ── Update tracking ─────────────────────────────────────────────────────
-    if (!parentId) {
-      yById.set(block.id, blockY);
-      xById.set(block.id, blockX);
-
-      if (block.same_row_as) {
-        // Parallel sibling: don't advance y or update prevId
-      } else {
-        // Main chain: advance y and update prevId
-        y = blockY + NODE_HEIGHT + VERT_GAP;
-        prevId = block.id;
-      }
-    } else {
-      // Child block inside expanded stack: y is managed by the parent loop
-      prevId = block.id;
+    // ── Advance column state ────────────────────────────────────────────────
+    if (!isSidecar) {
+      yByCol.set(col, blockY + NODE_HEIGHT + VERT_GAP);
+      prevByCol.set(col, block.id);
     }
 
-    const entryY = blockY;
-
-    // ── Expanded children ───────────────────────────────────────────────────
+    // ── Expanded children (sub-blocks within a transformer stack) ───────────
     if (isExpanded && block.children.length > 0) {
       const childX = blockX + CHILD_X_OFFSET;
       let childPrevId: string | null = null;
-      const childrenStartY = y;
+      // Children start at the column's current y (just advanced above)
+      const childrenStartY = getColY(col);
 
+      // Residual skip-connection tracking
       const rawLayout = block.params?.residual_layout as string | undefined;
       const residualLayout =
         rawLayout ||
@@ -161,6 +169,9 @@ export function buildGraphElements(
       const anchorAfterLayerNorm = residualLayout === "post_ln";
       let residualAnchor: string = block.id;
       let pendingSkipSrc: string = block.id;
+
+      // local child y cursor
+      let cy = childrenStartY;
 
       for (const child of block.children) {
         const childIsExpanded = expandedBlockIds.has(child.id);
@@ -175,7 +186,7 @@ export function buildGraphElements(
         nodes.push({
           id: childNodeId,
           type: "blockNode",
-          position: { x: childX, y },
+          position: { x: childX, y: cy },
           data: { data: childNodeData },
           style: { width: NODE_WIDTH },
         });
@@ -198,33 +209,24 @@ export function buildGraphElements(
           });
         }
 
+        // Residual skip edges
         const ct = child.type;
-        if (
-          ct === "multi_head_attention" ||
-          ct === "feed_forward" ||
-          ct === "moe_feed_forward"
-        ) {
+        if (ct === "multi_head_attention" || ct === "feed_forward" || ct === "moe_feed_forward") {
           pendingSkipSrc = residualAnchor;
         } else if (ct === "add") {
-          const isParentSrc = pendingSkipSrc === block.id;
-          const isFromPriorAdd =
-            !isParentSrc && pendingSkipSrc.includes("__add_");
+          const isParentSrc  = pendingSkipSrc === block.id;
+          const isFromPriorAdd = !isParentSrc && pendingSkipSrc.includes("__add_");
           const useBottomSource =
             isFromPriorAdd &&
             (residualLayout === "pre_ln" || residualLayout === "t5_decoder");
-          const skipLabel = isParentSrc ? "x" : "y";
           edges.push({
             id: `skip::${pendingSkipSrc}::${childNodeId}`,
             source: pendingSkipSrc,
             target: childNodeId,
-            sourceHandle: isParentSrc
-              ? "source-right"
-              : useBottomSource
-                ? "source-bottom"
-                : "source-left",
+            sourceHandle: isParentSrc ? "source-right" : useBottomSource ? "source-bottom" : "source-left",
             targetHandle: "target-left",
             type: "residual",
-            label: skipLabel,
+            label: isParentSrc ? "x" : "y",
             data: { residualFromPriorAddBottom: useBottomSource },
           });
           residualAnchor = childNodeId;
@@ -233,58 +235,41 @@ export function buildGraphElements(
         }
 
         childPrevId = childNodeId;
-        y += NODE_HEIGHT + CHILD_VERT_GAP;
+        cy += NODE_HEIGHT + CHILD_VERT_GAP;
 
+        // Grandchild expansion
         if (childIsExpanded && child.children.length > 0) {
           const gcX = childX + CHILD_X_OFFSET;
           let gcPrevId: string | null = null;
-          const gcParentNodeId = `${block.id}__${child.id}`;
+          const gcParentId = `${block.id}__${child.id}`;
 
           for (const gc of child.children) {
             const gcId = `${block.id}__${child.id}__${gc.id}`;
-            const gcData: BlockNodeData = {
-              block: gc,
-              isExpanded: false,
-              isDiffed: diffedIds.has(gc.id),
-              diffDelta: diffedIds.get(gc.id),
-            };
-
             nodes.push({
               id: gcId,
               type: "blockNode",
-              position: { x: gcX, y },
-              data: { data: gcData },
+              position: { x: gcX, y: cy },
+              data: { data: { block: gc, isExpanded: false, isDiffed: diffedIds.has(gc.id), diffDelta: diffedIds.get(gc.id) } },
               style: { width: NODE_WIDTH },
             });
-
-            if (gcPrevId) {
-              edges.push({
-                id: `${gcPrevId}->${gcId}`,
-                source: gcPrevId,
-                target: gcId,
-                type: "smoothstep",
-                style: { stroke: "#a855f7", strokeWidth: 1 },
-              });
-            } else {
-              edges.push({
-                id: `${gcParentNodeId}->${gcId}`,
-                source: gcParentNodeId,
-                target: gcId,
-                type: "smoothstep",
-                style: { stroke: "#a855f7", strokeWidth: 1, strokeDasharray: "4" },
-              });
-            }
-
+            edges.push({
+              id: gcPrevId ? `${gcPrevId}->${gcId}` : `${gcParentId}->${gcId}`,
+              source: gcPrevId ?? gcParentId,
+              target: gcId,
+              type: "smoothstep",
+              style: { stroke: "#a855f7", strokeWidth: 1, ...(gcPrevId ? {} : { strokeDasharray: "4" }) },
+            });
             gcPrevId = gcId;
-            y += NODE_HEIGHT + CHILD_VERT_GAP;
+            cy += NODE_HEIGHT + CHILD_VERT_GAP;
           }
-          y += CHILD_VERT_GAP;
+          cy += CHILD_VERT_GAP;
         }
       }
 
+      // Repeat label
       if (block.repeat > 1) {
         const BRACKET_PAD = 8;
-        const childrenActualHeight = y - CHILD_VERT_GAP - childrenStartY;
+        const childrenActualHeight = cy - CHILD_VERT_GAP - childrenStartY;
         const labelData: RepeatLabelData = {
           repeat: block.repeat,
           heightPx: childrenActualHeight + BRACKET_PAD * 2,
@@ -300,14 +285,14 @@ export function buildGraphElements(
         });
       }
 
-      y += VERT_GAP;
+      // Advance this column's y past the expanded children
+      const childrenEndY = cy + VERT_GAP;
+      yByCol.set(col, Math.max(getColY(col), childrenEndY));
     }
-
-    return entryY;
   }
 
   for (const block of ir.blocks) {
-    addBlock(block, 0);
+    addTopLevelBlock(block);
   }
 
   return { nodes, edges };

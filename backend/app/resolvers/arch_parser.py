@@ -802,7 +802,8 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
                     "patch_size": cp, "image_size": ci, "mlp_dim": clip_mlp,
                     "output_dim": cw},
             param_count=clip_p,
-            merge_from=[],   # starts the vision branch (no edge from Token Embeddings)
+            layout_column=1,  # vision column (right of text column)
+            merge_from=[],    # starts the vision branch (no edge from Token Embeddings)
             notes=(
                 f"Vision encoder — runs in parallel with SAM ViT-B.\n"
                 f"Processes the full global-view image ({ci}×{ci}) through {cl} ViT-L transformer layers.\n"
@@ -839,6 +840,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
             params={"layers": sl, "width": sw, "heads": sam_cfg.get("heads", 12),
                     "downsample_channels": downsample, "output_dim": sam_out_dim},
             param_count=sam_p,
+            layout_column=1,               # vision column
             same_row_as="clip_l_vision",   # placed alongside CLIP (parallel branch)
             merge_from=[],                 # no auto-connect; branch start
             notes=(
@@ -863,6 +865,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
                     "sam_branch_width": sam_out_dim,
                     "operation": "concat"},
             param_count=0,
+            layout_column=1,  # vision column
             merge_from=["clip_l_vision", "sam_vit_b"],  # converges both parallel branches
             notes=(
                 f"Concatenates the two parallel vision branch outputs along the channel dimension:\n"
@@ -883,6 +886,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         type=BlockType.LINEAR,
         params={"in_features": proj_in, "out_features": proj_out, "bias": True},
         param_count=proj_p,
+        layout_column=1,  # vision column — auto-connects from vision_fusion above
         notes=(
             f"Maps fused vision features ({proj_in} dims) into the LM token space ({proj_out} dims).\n"
             f"Type: {proj_type}  |  {proj_in:,} × {proj_out:,} + {proj_out:,} bias = {proj_p:,} params."
@@ -901,9 +905,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
     blocks.append(ArchBlock(
         id="layers",
         label=(
-            f"LM Decoder — MoE ({n_routed} routed + {n_shared} shared, "
-            f"top-{n_experts_per_tok} active/token · "
-            f"{total_layer/1e9:.2f}B stored · ~{active_lm/1e9:.2f}B active (per token))"
+            f"LM Decoder — MoE · {total_layer/1e9:.2f}B stored · ~{active_lm/1e9:.2f}B active"
             if is_moe else "LM Decoder"
         ),
         type=BlockType.TRANSFORMER_STACK,

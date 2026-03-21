@@ -40,7 +40,9 @@ export interface ArchBlock {
   param_count: number | null;
   notes: string | null;
   unknown_fields: string[];
-  /** Place this block at the same Y as the named block, offset to the right (parallel branch). */
+  /** Which visual column this block occupies. 0 = main/left (default), 1 = secondary/right. */
+  layout_column?: number;
+  /** Place this block alongside a named block at the same Y (parallel branch). */
   same_row_as?: string | null;
   /** Explicit incoming edge sources. Overrides auto-connect from previous block.
    *  Empty array = starts a new branch with no incoming edges. */
