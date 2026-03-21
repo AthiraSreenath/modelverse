@@ -765,9 +765,20 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
 
     total_layer, final_norm_p, emb_p, lm_head_p, _ = _deepseek_lm_param_count(lm_cfg)
 
-    # ── Vision encoders (PARALLEL paths — both process the image independently) ──
+    # ── Token Embeddings (text path) — placed first so the conceptual flow is:
+    #    Text → embeddings ─┐
+    #                       ├── LM input
+    #    Vision → projector ┘
     blocks: list[ArchBlock] = []
+    blocks.append(ArchBlock(
+        id="embed_tokens", label="Token Embeddings", type=BlockType.EMBEDDING,
+        params={"vocab_size": vocab_size, "hidden_size": h,
+                "max_position_embeddings": max_pos, "position_embedding_type": "rope"},
+        param_count=emb_p,
+        notes="Text token embeddings. Projected vision tokens are injected into this same sequence before the LM decoder.",
+    ))
 
+    # ── Vision encoders (PARALLEL paths — both process the image independently) ──
     clip_cfg = vis_width_cfg.get("clip-l-14-224", {})
     clip_p = 0
     clip_out_dim = 0
@@ -842,18 +853,18 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
     if clip_p and sam_p:
         blocks.append(ArchBlock(
             id="vision_fusion",
-            label=f"Fused Vision Representation ({proj_in}-d)",
+            label=f"Feature Fusion (concat: {clip_out_dim} + {sam_out_dim} → {proj_in})",
             type=BlockType.ADD,
             params={"output_dim": proj_in,
                     "clip_branch_width": clip_out_dim,
-                    "sam_branch_width": sam_out_dim},
+                    "sam_branch_width": sam_out_dim,
+                    "operation": "concat"},
             param_count=0,
             notes=(
-                f"The two parallel vision branches are merged into a {proj_in}-d fused representation.\n\n"
-                f"The config specifies projector input_dim={proj_in} and the two vision branches have "
-                f"widths {clip_out_dim} (CLIP) and {sam_out_dim} (SAM after neck). "
-                f"The exact fusion mechanism (concat, add, or learned) is not fully specified in the "
-                f"config — the {proj_in}-d output is what the config guarantees.\n\n"
+                f"Concatenates the two parallel vision branch outputs along the channel dimension:\n"
+                f"  CLIP ViT-L/14 output: {clip_out_dim}-d\n"
+                f"  SAM ViT-B output (after neck): {sam_out_dim}-d\n"
+                f"  concat → {proj_in}-d fused representation\n\n"
                 "No learned parameters in this fusion step itself."
             ),
         ))
@@ -884,15 +895,13 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
     total_stored_lm = total_layer + final_norm_p + emb_p + lm_head_p
 
     blocks.append(ArchBlock(
-        id="embed_tokens", label="Token Embeddings", type=BlockType.EMBEDDING,
-        params={"vocab_size": vocab_size, "hidden_size": h,
-                "max_position_embeddings": max_pos, "position_embedding_type": "rope"},
-        param_count=emb_p,
-    ))
-    blocks.append(ArchBlock(
         id="layers",
-        label=(f"LM Decoder — MoE ({n_routed} routed + {n_shared} shared, top-{n_experts_per_tok} active/token · stored params)"
-               if is_moe else "LM Decoder"),
+        label=(
+            f"LM Decoder — MoE ({n_routed} routed + {n_shared} shared, "
+            f"top-{n_experts_per_tok} active/token · "
+            f"{total_layer/1e9:.2f}B stored · ~{active_lm/1e9:.2f}B active/tok)"
+            if is_moe else "LM Decoder"
+        ),
         type=BlockType.TRANSFORMER_STACK,
         params={
             "hidden_size": h, "num_hidden_layers": num_layers,
@@ -904,11 +913,11 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
                 "first_k_dense_replace": first_k_dense} if is_moe else {}),
         },
         repeat=1, children=[],
-        param_count=total_layer + final_norm_p,
+        param_count=total_layer,   # final_norm is its own block below
         notes=(
             f"Params shown = stored (all experts saved to disk, not active compute).\n"
-            f"  • Stored: {(total_stored_lm)/1e9:.2f}B — {n_routed} routed + {n_shared} shared experts all on disk\n"
-            f"  • Active per token: {active_lm/1e9:.2f}B — top-{n_experts_per_tok} of {n_routed} routed "
+            f"  • Stored: {total_layer/1e9:.2f}B — {n_routed} routed + {n_shared} shared experts all on disk\n"
+            f"  • Active per token: ~{active_lm/1e9:.2f}B — top-{n_experts_per_tok} of {n_routed} routed "
             f"fire; remaining {n_routed - n_experts_per_tok} are idle each step\n\n"
             f"Layer breakdown ({num_layers} layers):\n"
             f"  • Layer{'s' if n_dense > 1 else ''} 0–{max(n_dense-1,0)}: "
@@ -920,6 +929,19 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
             f"{num_heads} heads, hidden={h}, head_dim={h // num_heads}."
         ) if is_moe else None,
     ))
+
+    # ── Final norm (separate block — RMSNorm for DeepSeek-V2 family) ──────────
+    norm_type = lm_cfg.get("norm_type", "rms_norm")
+    norm_label = "RMSNorm" if "rms" in norm_type.lower() else "LayerNorm"
+    blocks.append(ArchBlock(
+        id="final_norm",
+        label=f"Final {norm_label}",
+        type=BlockType.LAYER_NORM,
+        params={"hidden_size": h, "norm_type": norm_type},
+        param_count=final_norm_p,
+        notes=f"Final normalisation before the LM head. Type: {norm_type} ({h}-d → {final_norm_p:,} params).",
+    ))
+
     _lm_head_tied = not lm_cfg.get("lm_head", True)  # lm_head:true → separate weights
     blocks.append(ArchBlock(
         id="lm_head", label="LM Head", type=BlockType.LINEAR,
