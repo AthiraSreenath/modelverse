@@ -36,7 +36,21 @@ logger = logging.getLogger(__name__)
 
 # Bump this string whenever the prompt or cache schema changes.
 # Old cached block lists (keyed on a different version) are silently superseded.
-_PROMPT_VERSION = "v3"
+_PROMPT_VERSION = "v4"
+
+# Canonical block IDs the LLM is required to use for known components.
+# _compute_stats_from_config matches on these exact IDs, bypassing fragile
+# keyword/type matching entirely.
+CANONICAL_IDS = {
+    "vision_patch_embed",   # patch embedding before the vision stack
+    "vision_encoder",       # the main vision transformer stack
+    "vision_projection",    # linear projection of vision features → LM hidden dim
+    "embed_tokens",         # text token embedding table
+    "multimodal_merge",     # merge / token-interleaving step
+    "lm_decoder",           # language model decoder transformer stack
+    "final_norm",           # final RMSNorm/LayerNorm before LM head
+    "lm_head",              # output projection to vocab logits
+}
 
 _CACHE_DIR = (
     Path(os.getenv("MODELVERSE_CACHE_DIR", Path.home() / ".cache" / "modelverse"))
@@ -220,38 +234,61 @@ _SYSTEM = """\
 You are an expert ML engineer specialising in multimodal vision-language
 architectures. Given a HuggingFace config.json and a set of pre-extracted
 architecture signals, produce the correct full forward-pass architecture as
-a JSON block list. Follow the signals EXACTLY — they are derived directly
-from the config and override any prior knowledge you have about the model family."""
+a JSON block list.
+
+CRITICAL RULES (must not be violated):
+1. Follow the pre-extracted signals EXACTLY — they are derived from the config.
+2. Use the EXACT canonical block IDs listed below for known components.
+   These IDs are used by downstream code to override your param estimates with
+   exact computed values, so wrong IDs cause wrong parameter counts.
+3. The forward-pass order is FIXED (vision first, merge before decoder):
+     vision_patch_embed → vision_encoder → vision_projection
+               ↓
+     multimodal_merge  ←── embed_tokens (parallel independent input)
+               ↓
+     lm_decoder → [final_norm] → lm_head
+   The LM decoder ALWAYS comes AFTER the multimodal merge. Never before."""
 
 _USER_TMPL = """\
 Model ID: {model_id}
 
-Pre-extracted architecture signals (derived directly from config — treat as ground truth):
+Pre-extracted architecture signals (ground truth from config):
 {signals}
+
+Canonical block IDs you MUST use (exact strings, no variations):
+  "vision_patch_embed"  — vision patch / token embedding (type=embedding)
+  "vision_encoder"      — vision transformer stack (type=transformer_stack)
+  "vision_projection"   — vision output linear projection (type=linear)
+  "embed_tokens"        — text token embedding table (type=embedding)
+  "multimodal_merge"    — multimodal token merge/interleaving (type=add, param_count=0)
+  "lm_decoder"          — language model decoder transformer (type=transformer_stack)
+  "final_norm"          — final layer norm before LM head (type=layer_norm, if present)
+  "lm_head"             — output projection to vocab logits (type=linear)
 
 Full config JSON:
 ```json
 {config_json}
 ```
 
-Produce the complete architecture as a JSON array of blocks, forward-pass order
-(inputs first, outputs last). Each block MUST have these fields:
+Produce the architecture as a JSON array of blocks in STRICT forward-pass order.
+Each block has exactly these fields:
 {{
-  "id": "snake_case_unique_id",
+  "id": "canonical_id_or_unique_snake_case",
   "label": "Human-Readable Name",
   "type": one of ["embedding","transformer_stack","linear","add","layer_norm","unknown"],
-  "param_count": integer (your best estimate in raw integer form; 0 for param-free ops),
+  "param_count": integer (best estimate; 0 for param-free ops),
   "merge_from": null OR list of source block IDs,
-  "notes": "one sentence describing this component"
+  "notes": "one sentence"
 }}
 
-Layout rules:
-- Vision encoder branch: set merge_from=[] (independent root, no upstream block).
-- Text token embeddings: set merge_from=[] (independent root).
-  Also add "layout_align_y_with": "<id of the vision projection or last vision block>"
-  so it renders at the same visual level as the vision output.
-- Multimodal merge step: set merge_from=["<last_vision_block_id>", "embed_tokens"].
-- All other blocks: leave merge_from=null (auto-connect from previous block in sequence).
+Layout / merge_from rules:
+- Vision branch root (vision_patch_embed): merge_from=[]
+- Text token embeddings (embed_tokens): merge_from=[]
+  Also add "layout_align_y_with": "vision_projection" so it renders alongside
+  the vision output at the correct vertical level.
+- Multimodal merge (multimodal_merge): merge_from=["vision_projection","embed_tokens"]
+- lm_decoder comes IMMEDIATELY after multimodal_merge (merge_from=null, auto-connects).
+- All other blocks: merge_from=null.
 
 Return ONLY the JSON array, no prose, no markdown fences.
 """
@@ -412,14 +449,14 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
     """
     Compute param stats from config math, not LLM estimates.
 
-    Priority per block type:
-    - Embedding block        → vocab × hidden (exact)
-    - LM decoder block       → layer formula with GQA (exact)
-    - Vision encoder block   → ViT formula (exact)
-    - LM head block          → vocab × hidden when tie_emb=False (exact)
-    - Everything else        → keep LLM estimate
+    Strategy:
+    1. Canonical-ID match (exact, no type check) — overrides LLM estimate completely.
+    2. Keyword fallback for blocks with non-canonical IDs.
+    3. Raw LLM estimate for everything else.
+
+    This makes correctness independent of whatever type the LLM assigns.
     """
-    # ── Locate LM sub-config (try common key names) ────────────────────────
+    # ── Locate LM sub-config ───────────────────────────────────────────────
     lm_cfg = (
         config.get("text_config")
         or config.get("language_config")
@@ -428,28 +465,27 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
     )
     h     = lm_cfg.get("hidden_size", 0)
     n     = lm_cfg.get("num_hidden_layers", 0)
-    vocab = lm_cfg.get("vocab_size", 0)
+    # vocab_size may live in lm_cfg or at the top level (some models put it there)
+    vocab = lm_cfg.get("vocab_size") or config.get("vocab_size", 0)
     ffn   = lm_cfg.get("intermediate_size", 0)
     heads = lm_cfg.get("num_attention_heads", 0)
     kv_h  = lm_cfg.get("num_key_value_heads", heads)
     tie   = lm_cfg.get("tie_word_embeddings", True)
-    # head_dim: explicit field (GLM-OCR, Llama3) or inferred
     head_dim = lm_cfg.get("head_dim") or (h // heads if heads else 0)
 
     # ── Exact LM decoder params (GQA-aware) ───────────────────────────────
     exact_lm_params: int | None = None
     if h and n and heads and head_dim:
         q_proj  = h * (heads * head_dim)
-        kv_proj = 2 * h * (kv_h * head_dim)       # K + V projections
+        kv_proj = 2 * h * (kv_h * head_dim)
         o_proj  = (heads * head_dim) * h
         attn    = q_proj + kv_proj + o_proj
         if ffn:
-            act = lm_cfg.get("hidden_act", "silu")
-            # SwiGLU / SiLU → 3 matrices; standard → 2
+            act   = lm_cfg.get("hidden_act", "silu")
             ffn_p = (3 * h * ffn) if act in ("silu", "gelu_new") else (2 * h * ffn)
         else:
             ffn_p = 4 * h * h
-        norm_p = 2 * 2 * h    # 2 RMSNorms × (weight only, no bias for RMS)
+        norm_p = 2 * h    # single RMSNorm per layer (weight only, no bias)
         exact_lm_params = n * (attn + ffn_p + norm_p)
 
     # ── Exact embedding params ─────────────────────────────────────────────
@@ -467,14 +503,27 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
     )
     exact_vis_params: int | None = _vision_encoder_params(vis_cfg) or None
 
-    # Vision projection params: out_hidden_size differs from vis hidden_size
-    vis_h_in   = vis_cfg.get("hidden_size", 0)
-    vis_h_out  = vis_cfg.get("out_hidden_size", 0)
+    vis_h_in  = vis_cfg.get("hidden_size", 0)
+    vis_h_out = vis_cfg.get("out_hidden_size", 0)
     exact_vis_proj: int | None = None
     if vis_h_in and vis_h_out and vis_h_in != vis_h_out:
         exact_vis_proj = vis_h_in * vis_h_out + vis_h_out  # linear + bias
 
-    # ── Assign to blocks ───────────────────────────────────────────────────
+    # ── Canonical-ID → computed value map ─────────────────────────────────
+    # We match by exact block id so correctness doesn't depend on the LLM
+    # choosing a particular type string or label phrasing.
+    canonical_override: dict[str, int | None] = {
+        "embed_tokens":       exact_emb_params,
+        "lm_decoder":         exact_lm_params,
+        "vision_encoder":     exact_vis_params,
+        "lm_head":            lm_head_params,
+        "vision_projection":  exact_vis_proj,
+        "multimodal_merge":   0,
+        "final_norm":         0,
+        "vision_patch_embed": None,   # let LLM estimate stand (varies widely)
+    }
+
+    # ── Assign params per block ────────────────────────────────────────────
     total = 0
     emb   = 0
 
@@ -482,33 +531,44 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
         bid_lower = b.id.lower()
         lbl_lower = b.label.lower()
 
-        if b.type == BlockType.EMBEDDING and exact_emb_params is not None:
+        # 1. Canonical-ID exact match (highest priority)
+        if b.id in canonical_override:
+            p_override = canonical_override[b.id]
+            p = p_override if p_override is not None else (b.param_count or 0)
+
+        # 2. Keyword fallback for non-canonical IDs (handles model-specific naming)
+        elif (b.type == BlockType.EMBEDDING and exact_emb_params is not None):
             p = exact_emb_params
 
         elif (b.type == BlockType.TRANSFORMER_STACK
               and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("decoder", "lm_", "language_model", "text_model"))
+                      for kw in ("decoder", "lm_", "language model", "language_model",
+                                 "text model", "text_model"))
               and exact_lm_params is not None):
             p = exact_lm_params
 
         elif (b.type == BlockType.TRANSFORMER_STACK
               and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("vision", "visual", "vit", "image_encoder"))
+                      for kw in ("vision", "visual", "vit", "image encoder",
+                                 "image_encoder"))
               and exact_vis_params is not None):
             p = exact_vis_params
 
         elif (b.type == BlockType.LINEAR
               and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("lm_head", "output_proj", "output logits"))
+                      for kw in ("lm_head", "lm head", "output proj", "output_proj",
+                                 "output logits"))
               and lm_head_params is not None):
             p = lm_head_params
 
         elif (b.type == BlockType.LINEAR
               and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("vision_proj", "vision_output_proj", "visual_proj"))
+                      for kw in ("vision_proj", "vision proj", "vision_output_proj",
+                                 "visual_proj"))
               and exact_vis_proj is not None):
             p = exact_vis_proj
 
+        # 3. Raw LLM estimate
         else:
             p = b.param_count or 0
 
