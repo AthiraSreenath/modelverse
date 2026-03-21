@@ -254,19 +254,66 @@ def _blocks_from_llm(raw_blocks: list[dict]) -> list[ArchBlock]:
     return blocks
 
 
-def _compute_stats(blocks: list[ArchBlock]) -> ComputeStats:
-    total = sum(b.param_count or 0 for b in blocks)
-    emb = next((b.param_count or 0 for b in blocks if b.type == BlockType.EMBEDDING), 0)
-    enc = total - emb
+def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> ComputeStats:
+    """
+    Compute param stats, using exact config-derived math wherever possible.
+
+    For the LM backbone: extract hidden_size / num_hidden_layers from the
+    top-level config (or language_config sub-config) and compute exactly.
+    For vision components: keep the LLM-estimated param_count.
+    Everything else: sum what we have.
+    """
+    # Try to compute exact LM decoder params from config fields
+    lm_cfg = config.get("language_config") or config
+    h      = lm_cfg.get("hidden_size", 0)
+    n      = lm_cfg.get("num_hidden_layers", 0)
+    vocab  = lm_cfg.get("vocab_size", 0)
+    ffn    = lm_cfg.get("intermediate_size", 0)
+    heads  = lm_cfg.get("num_attention_heads", 0)
+    kv_h   = lm_cfg.get("num_key_value_heads", heads)
+
+    exact_lm_params: int | None = None
+    if h and n:
+        # per-layer: attn (Q+K+V+O) + FFN (gate+up+down) + 2 norms
+        q_proj  = h * h
+        kv_proj = 2 * h * (h // heads * kv_h) if heads else h * h
+        o_proj  = h * h
+        attn    = q_proj + kv_proj + o_proj
+        if ffn:
+            # SwiGLU (gate + up + down) or standard (fc1 + fc2)
+            ffn_p = 3 * h * ffn if lm_cfg.get("hidden_act") in ("silu", "gelu_new", None) else 2 * h * ffn
+        else:
+            ffn_p = 4 * h * h  # fallback
+        norm_p  = 2 * 2 * h   # 2 norms × (weight + bias)
+        exact_lm_params = n * (attn + ffn_p + norm_p)
+
+    exact_emb_params: int | None = None
+    if h and vocab:
+        exact_emb_params = vocab * h
+
+    # Sum: prefer exact values, fall back to LLM estimates per block
+    total = 0
+    emb   = 0
+    for b in blocks:
+        if b.type == BlockType.EMBEDDING and exact_emb_params is not None:
+            p = exact_emb_params
+        elif b.type == BlockType.TRANSFORMER_STACK and "decoder" in b.id.lower() and exact_lm_params is not None:
+            p = exact_lm_params
+        else:
+            p = b.param_count or 0
+        total += p
+        if b.type == BlockType.EMBEDDING:
+            emb += p
+
     return ComputeStats(
         params_total=total,
         params_embedding=emb,
-        params_encoder=enc,
+        params_encoder=total - emb,
         params_decoder=0,
         flops_per_token=None,
         memory_bytes_fp16=total * 2 if total else None,
         kv_cache_bytes_per_token=None,
-        context_window=None,
+        context_window=lm_cfg.get("max_position_embeddings"),
     )
 
 
@@ -328,7 +375,7 @@ async def parse_multimodal_with_llm(
             )
 
     blocks = _blocks_from_llm(raw_blocks)
-    compute = _compute_stats(blocks)
+    compute = _compute_stats_from_config(blocks, config)
 
     name = config.get("_name_or_path") or model_id.split("/")[-1]
     model_type = config.get("model_type", "multimodal")
