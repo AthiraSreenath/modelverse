@@ -3,11 +3,13 @@ Input resolver — detects input type and routes to the right parser.
 
 Pipeline:
   Step 1 — Pre-baked library            (instant, exact)
-  Step 2 — spaCy / non-standard NLP     (meta.json-based, no transformers)
-  Step 3 — AutoConfig mapper            (transformers CONFIG_MAPPING, ~475 types)
+  Step 2 — Legacy types                  (spaCy, DeepSeek VLMs — nested configs)
+  Step 3 — Multimodal detection          (any config with vision_config / connector_config etc.)
+              → LLM generates full multimodal IR; result cached by config SHA-256
+  Step 4 — AutoConfig mapper            (standard transformers, ~475 types)
               confidence HIGH  → done
-              confidence MEDIUM/LOW → Step 4
-  Step 4 — LLM verifier                 (checks IR against config, applies corrections,
+              confidence MEDIUM/LOW → Step 5
+  Step 5 — LLM verifier                 (checks IR against config, applies corrections,
                                          re-runs mapper; result cached by config SHA-256)
 """
 
@@ -89,12 +91,25 @@ async def resolve(
         return ResolveResponse(ir=ir, source=ir.source,
                                cached=False, resolve_time_ms=elapsed)
 
-    # ── Step 3: AutoConfig mapper ────────────────────────────────────────────
+    # ── Step 3: Multimodal detection — route to LLM-based parser ────────────
+    # Any config with nested sub-configs (vision_config, connector_config, etc.)
+    # is multimodal. autoconfig_mapper would only see the language backbone and
+    # miss the vision encoder and connector entirely. The LLM can reason about
+    # ANY multimodal config without requiring model-specific hardcoding.
+    from .multimodal_llm_parser import is_multimodal, parse_multimodal_with_llm
+    if is_multimodal(config):
+        ir = await parse_multimodal_with_llm(config, model_id=text)
+        elapsed = (time.monotonic() - start) * 1000
+        logger.info("Resolved '%s' via multimodal LLM parser in %.1fms", text, elapsed)
+        return ResolveResponse(ir=ir, source=ir.source,
+                               cached=False, resolve_time_ms=elapsed)
+
+    # ── Step 4: AutoConfig mapper ────────────────────────────────────────────
     ir = map_autoconfig_to_ir(config, model_id=text)
     logger.debug("AutoConfig mapper: model_type=%s confidence=%s",
                  model_type, ir.source_confidence)
 
-    # ── Step 4: LLM verifier (only when confidence < HIGH) ───────────────────
+    # ── Step 4: LLM verifier (only when confidence < HIGH) ──────────────────
     if _needs_llm_verification(ir):
         try:
             from .llm_verifier import llm_verify_and_correct
