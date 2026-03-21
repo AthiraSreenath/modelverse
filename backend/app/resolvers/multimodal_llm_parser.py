@@ -418,43 +418,149 @@ def _blocks_from_llm(raw_blocks: list[dict]) -> list[ArchBlock]:
 def _vision_encoder_params(vis_cfg: dict) -> int:
     """
     Compute approximate vision encoder params from vision_config fields.
-    Uses the standard ViT formula: patch_embed + pos_embed + L*(attn+FFN+norms).
+    Uses the standard ViT formula: patch_embed + pos_embed + L*(attn+MLP+norms).
+
+    Note: standard ViT uses a 2-matrix MLP (fc1+fc2), not SwiGLU's 3-matrix form,
+    even when hidden_act="silu". This gives ~302M for ViT-L/14, matching CLIP.
     """
     vis_h   = vis_cfg.get("hidden_size", 0)
     depth   = vis_cfg.get("depth") or vis_cfg.get("num_hidden_layers", 0)
     vis_ffn = vis_cfg.get("intermediate_size", 0)
     patch   = vis_cfg.get("patch_size", 0)
     img     = vis_cfg.get("image_size", 0)
-    heads   = vis_cfg.get("num_heads") or vis_cfg.get("num_attention_heads", 0)
 
     if not (vis_h and depth):
         return 0
 
-    # Patch embedding: 3 channels × patch² × hidden
-    patch_emb = 3 * patch * patch * vis_h if patch else 0
-    # CLS + position embeddings
+    # Patch embedding: 3 channels × patch² × hidden  +  bias
+    patch_emb = (3 * patch * patch * vis_h + vis_h) if patch else 0
+    # CLS token  +  position embeddings (one per patch + CLS)
     n_patches = (img // patch) ** 2 if (img and patch) else 196
     pos_emb   = (n_patches + 1) * vis_h
 
-    # Per-layer: standard ViT MHA + SwiGLU/MLP
-    attn = 4 * vis_h * vis_h   # Q+K+V+O projections (square)
-    ffn_p = (3 * vis_h * vis_ffn) if vis_ffn else (8 * vis_h * vis_h)   # SwiGLU
-    norms = 2 * 2 * vis_h      # 2 norms × (weight + bias)
+    # Per-layer: standard ViT MHA (Q+K+V+O, square) + 2-layer MLP + 2 norms
+    attn  = 4 * vis_h * vis_h
+    ffn_p = (2 * vis_h * vis_ffn) if vis_ffn else (4 * vis_h * vis_h)  # 2-matrix MLP
+    norms = 2 * vis_h      # 2 LayerNorms (weight only; ViT typically has bias too, so ×2)
     per_layer = attn + ffn_p + norms
 
     return patch_emb + pos_emb + depth * per_layer
 
 
+# Types that are obviously not a transformer stack or linear projection
+_NON_TRANSFORMER = frozenset({
+    BlockType.EMBEDDING,
+    BlockType.ADD,
+    BlockType.LAYER_NORM,
+})
+
+
+def _resolve_param(
+    b: "ArchBlock",
+    blocks: "list[ArchBlock]",
+    *,
+    exact_emb_params: int | None,
+    exact_lm_params: int | None,
+    exact_vis_params: int | None,
+    lm_head_params: int | None,
+    exact_vis_proj: int | None,
+    canonical_override: dict,
+) -> int:
+    """
+    Return the best available parameter count for block `b`.
+
+    Priority:
+    1. Canonical ID (exact block.id match, no type check)
+    2. Keyword match on id/label — relaxed type check (TRANSFORMER_STACK or UNKNOWN)
+    3. Type-only fallback for embeddings
+    4. Position-based inference (relative to multimodal merge block)
+    5. LLM estimate
+    """
+    bid = b.id.lower()
+    lbl = b.label.lower()
+
+    # ── 1. Canonical ID ──────────────────────────────────────────────────────
+    if b.id in canonical_override:
+        v = canonical_override[b.id]
+        return v if v is not None else (b.param_count or 0)
+
+    # ── 2. Keyword matching (allows TRANSFORMER_STACK or UNKNOWN type) ───────
+    is_transformer_ish = b.type in (BlockType.TRANSFORMER_STACK, BlockType.UNKNOWN)
+    is_linear_ish      = b.type in (BlockType.LINEAR, BlockType.UNKNOWN)
+
+    vis_keywords = ("vision encoder", "visual encoder", "vision_encoder",
+                    "visual_encoder", "vit encoder", "vit_encoder",
+                    "cogvit", "cog_vit", "image encoder", "image_encoder")
+    dec_keywords = ("lm decoder", "lm_decoder", "language model decoder",
+                    "language_model_decoder", "language decoder", "language_decoder",
+                    "glm decoder", "glm_decoder", "text decoder", "text_decoder")
+    head_keywords = ("lm_head", "lm head", "language model head", "language_model_head",
+                     "output logits", "output_logits", "vocab proj", "vocab_proj")
+    vproj_keywords = ("vision_projection", "vision projection", "vision output projection",
+                      "vision_output_projection", "visual projection", "visual_projection",
+                      "vis_proj", "vis proj")
+
+    if (is_transformer_ish
+            and exact_vis_params is not None
+            and any(kw in bid or kw in lbl for kw in vis_keywords)):
+        return exact_vis_params
+
+    if (is_transformer_ish
+            and exact_lm_params is not None
+            and any(kw in bid or kw in lbl for kw in dec_keywords)):
+        return exact_lm_params
+
+    # Also catch bare "decoder" in id/label for non-vision transformer blocks
+    # (e.g. "glm_decoder", "gpt_decoder") but only if it doesn't look like vision
+    if (is_transformer_ish
+            and exact_lm_params is not None
+            and "decoder" in bid
+            and not any(vk in bid for vk in ("vision", "visual", "vit"))):
+        return exact_lm_params
+
+    if (is_linear_ish
+            and lm_head_params is not None
+            and any(kw in bid or kw in lbl for kw in head_keywords)):
+        return lm_head_params
+
+    if (is_linear_ish
+            and exact_vis_proj is not None
+            and any(kw in bid or kw in lbl for kw in vproj_keywords)):
+        return exact_vis_proj
+
+    # ── 3. Type-only fallback for embeddings ─────────────────────────────────
+    if b.type == BlockType.EMBEDDING and exact_emb_params is not None:
+        return exact_emb_params
+
+    # ── 4. Position-based inference ──────────────────────────────────────────
+    # If none of the above matched and the block is transformer-ish, use its
+    # position relative to the multimodal merge to guess vision vs LM decoder.
+    if is_transformer_ish:
+        merge_pos = next(
+            (j for j, blk in enumerate(blocks)
+             if "merge" in blk.id.lower() or "multimodal" in blk.id.lower()),
+            None
+        )
+        if merge_pos is not None:
+            my_pos = next(j for j, blk in enumerate(blocks) if blk is b)
+            if my_pos < merge_pos and exact_vis_params is not None:
+                logger.debug("Position-based: block %s before merge → vision encoder", b.id)
+                return exact_vis_params
+            if my_pos > merge_pos and exact_lm_params is not None:
+                logger.debug("Position-based: block %s after merge → lm decoder", b.id)
+                return exact_lm_params
+
+    # ── 5. Fall through to LLM estimate ──────────────────────────────────────
+    logger.debug("Block %s (type=%s): using LLM estimate %s", b.id, b.type, b.param_count)
+    return b.param_count or 0
+
+
 def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> ComputeStats:
     """
-    Compute param stats from config math, not LLM estimates.
+    Compute exact param counts from config math and write them back onto each
+    block's param_count so the per-block display in the UI is also correct.
 
-    Strategy:
-    1. Canonical-ID match (exact, no type check) — overrides LLM estimate completely.
-    2. Keyword fallback for blocks with non-canonical IDs.
-    3. Raw LLM estimate for everything else.
-
-    This makes correctness independent of whatever type the LLM assigns.
+    Totals in the returned ComputeStats are derived from the updated block values.
     """
     # ── Locate LM sub-config ───────────────────────────────────────────────
     lm_cfg = (
@@ -465,7 +571,6 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
     )
     h     = lm_cfg.get("hidden_size", 0)
     n     = lm_cfg.get("num_hidden_layers", 0)
-    # vocab_size may live in lm_cfg or at the top level (some models put it there)
     vocab = lm_cfg.get("vocab_size") or config.get("vocab_size", 0)
     ffn   = lm_cfg.get("intermediate_size", 0)
     heads = lm_cfg.get("num_attention_heads", 0)
@@ -485,16 +590,12 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
             ffn_p = (3 * h * ffn) if act in ("silu", "gelu_new") else (2 * h * ffn)
         else:
             ffn_p = 4 * h * h
-        norm_p = 2 * h    # single RMSNorm per layer (weight only, no bias)
+        norm_p = 2 * h
         exact_lm_params = n * (attn + ffn_p + norm_p)
 
-    # ── Exact embedding params ─────────────────────────────────────────────
     exact_emb_params: int | None = (vocab * h) if (vocab and h) else None
+    lm_head_params:   int | None = (vocab * h) if (not tie and vocab and h) else None
 
-    # ── Separate LM head (when not tied) ──────────────────────────────────
-    lm_head_params: int | None = (vocab * h) if (not tie and vocab and h) else None
-
-    # ── Vision encoder params ─────────────────────────────────────────────
     vis_cfg = (
         config.get("vision_config")
         or config.get("visual_config")
@@ -507,11 +608,8 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
     vis_h_out = vis_cfg.get("out_hidden_size", 0)
     exact_vis_proj: int | None = None
     if vis_h_in and vis_h_out and vis_h_in != vis_h_out:
-        exact_vis_proj = vis_h_in * vis_h_out + vis_h_out  # linear + bias
+        exact_vis_proj = vis_h_in * vis_h_out + vis_h_out
 
-    # ── Canonical-ID → computed value map ─────────────────────────────────
-    # We match by exact block id so correctness doesn't depend on the LLM
-    # choosing a particular type string or label phrasing.
     canonical_override: dict[str, int | None] = {
         "embed_tokens":       exact_emb_params,
         "lm_decoder":         exact_lm_params,
@@ -520,58 +618,24 @@ def _compute_stats_from_config(blocks: list[ArchBlock], config: dict) -> Compute
         "vision_projection":  exact_vis_proj,
         "multimodal_merge":   0,
         "final_norm":         0,
-        "vision_patch_embed": None,   # let LLM estimate stand (varies widely)
+        "vision_patch_embed": None,
     }
 
-    # ── Assign params per block ────────────────────────────────────────────
+    # ── Assign params to each block and write back in place ───────────────
     total = 0
     emb   = 0
+    resolve_kwargs = dict(
+        exact_emb_params=exact_emb_params,
+        exact_lm_params=exact_lm_params,
+        exact_vis_params=exact_vis_params,
+        lm_head_params=lm_head_params,
+        exact_vis_proj=exact_vis_proj,
+        canonical_override=canonical_override,
+    )
 
     for b in blocks:
-        bid_lower = b.id.lower()
-        lbl_lower = b.label.lower()
-
-        # 1. Canonical-ID exact match (highest priority)
-        if b.id in canonical_override:
-            p_override = canonical_override[b.id]
-            p = p_override if p_override is not None else (b.param_count or 0)
-
-        # 2. Keyword fallback for non-canonical IDs (handles model-specific naming)
-        elif (b.type == BlockType.EMBEDDING and exact_emb_params is not None):
-            p = exact_emb_params
-
-        elif (b.type == BlockType.TRANSFORMER_STACK
-              and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("decoder", "lm_", "language model", "language_model",
-                                 "text model", "text_model"))
-              and exact_lm_params is not None):
-            p = exact_lm_params
-
-        elif (b.type == BlockType.TRANSFORMER_STACK
-              and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("vision", "visual", "vit", "image encoder",
-                                 "image_encoder"))
-              and exact_vis_params is not None):
-            p = exact_vis_params
-
-        elif (b.type == BlockType.LINEAR
-              and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("lm_head", "lm head", "output proj", "output_proj",
-                                 "output logits"))
-              and lm_head_params is not None):
-            p = lm_head_params
-
-        elif (b.type == BlockType.LINEAR
-              and any(kw in bid_lower or kw in lbl_lower
-                      for kw in ("vision_proj", "vision proj", "vision_output_proj",
-                                 "visual_proj"))
-              and exact_vis_proj is not None):
-            p = exact_vis_proj
-
-        # 3. Raw LLM estimate
-        else:
-            p = b.param_count or 0
-
+        p = _resolve_param(b, blocks, **resolve_kwargs)
+        b.param_count = p   # ← write back so per-block UI display is correct
         total += p
         if b.type == BlockType.EMBEDDING:
             emb += p
