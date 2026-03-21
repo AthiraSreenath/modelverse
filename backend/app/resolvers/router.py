@@ -26,8 +26,18 @@ logger = logging.getLogger(__name__)
 
 _HF_ID_RE = re.compile(r"^[a-zA-Z0-9_\-\.]+(/[a-zA-Z0-9_\-\.]+)?$")
 
-# Model types that use non-standard config formats handled by arch_parser
-_LEGACY_TYPES = {"spacy"}
+# Model types routed through arch_parser instead of autoconfig_mapper.
+# Standard transformers (bert, llama, t5, etc.) go through autoconfig_mapper.
+# VLM and custom-MoE types stay here because their configs have nested
+# sub-configs (language_config, vision_config, sam_config, ...) that
+# autoconfig_mapper cannot read from the top level.
+_LEGACY_TYPES = {
+    "spacy",
+    "deepseek_vl_v2",  # CLIP + SAM + projector + DeepSeek-V2 LM (nested sub-configs)
+    "deepseek_vl",     # same family
+    "deepseek_v2",     # custom MoE config structure
+    "deepseek_v3",     # same
+}
 
 
 def _looks_like_hf_id(text: str) -> bool:
