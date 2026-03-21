@@ -1,6 +1,12 @@
 /**
  * Converts ArchitectureIR blocks into React Flow nodes + edges.
  * Uses a simple top-down layout (no Dagre needed for linear architectures).
+ *
+ * Layout hints on ArchBlock drive non-linear graphs:
+ *   same_row_as  — place this block alongside (same Y, offset X) a named block.
+ *                  Used for parallel branches (e.g. CLIP ‖ SAM in VLMs).
+ *   merge_from   — explicit incoming edge sources; overrides auto-connect.
+ *                  Empty array = branch start (no incoming edges).
  */
 
 import type { Node, Edge } from "@xyflow/react";
@@ -8,11 +14,12 @@ import type { ArchBlock, ArchitectureIR, DiffEntry } from "@/lib/ir";
 import type { BlockNodeData } from "./nodes/BlockNode";
 import type { RepeatLabelData } from "./nodes/RepeatLabelNode";
 
-const NODE_WIDTH = 240;
-const NODE_HEIGHT = 64;
-const VERT_GAP = 24;
-const CHILD_X_OFFSET = 280;   // keeps a 40 px gap for residual skip C-curves
-const CHILD_VERT_GAP = 12;
+const NODE_WIDTH    = 240;
+const NODE_HEIGHT   = 64;
+const VERT_GAP      = 24;
+const PARALLEL_GAP  = 20;   // horizontal gap between side-by-side parallel blocks
+const CHILD_X_OFFSET  = 280;
+const CHILD_VERT_GAP  = 12;
 
 /** Get block IDs that appear in the diff */
 function getDiffedBlockIds(diff: DiffEntry[]): Map<string, number> {
@@ -21,11 +28,8 @@ function getDiffedBlockIds(diff: DiffEntry[]): Map<string, number> {
     const parts = entry.path.split(".");
     const blockId = parts[0];
     if (blockId) {
-      // try to extract a numeric delta
-      const oldVal =
-        typeof entry.old === "number" ? entry.old : null;
-      const newVal =
-        typeof entry.new === "number" ? entry.new : null;
+      const oldVal = typeof entry.old === "number" ? entry.old : null;
+      const newVal = typeof entry.new === "number" ? entry.new : null;
       if (oldVal !== null && newVal !== null) {
         map.set(blockId, newVal - oldVal);
       } else {
@@ -48,6 +52,10 @@ export function buildGraphElements(
   let y = 0;
   let prevId: string | null = null;
 
+  // Track placed position of each top-level block for layout hints
+  const yById = new Map<string, number>();
+  const xById = new Map<string, number>();
+
   function addBlock(
     block: ArchBlock,
     x: number,
@@ -56,6 +64,28 @@ export function buildGraphElements(
     const isExpanded = expandedBlockIds.has(block.id);
     const isDiffed = diffedIds.has(block.id);
     const diffDelta = diffedIds.get(block.id);
+
+    // ── Determine position ──────────────────────────────────────────────────
+    let blockX = x;
+    let blockY = y;
+
+    if (!parentId && block.same_row_as) {
+      // Parallel sibling: place at same Y as the referenced block, offset right
+      const refY = yById.get(block.same_row_as) ?? y;
+      const refX = xById.get(block.same_row_as) ?? 0;
+      // Stack siblings further right if the referenced block itself was a sibling
+      blockX = refX + NODE_WIDTH + PARALLEL_GAP;
+      blockY = refY;
+    } else if (!parentId && block.merge_from != null) {
+      // Convergence point: sit below the deepest of its sources
+      let maxSourceBottom = 0;
+      for (const srcId of block.merge_from) {
+        const srcY = yById.get(srcId) ?? 0;
+        maxSourceBottom = Math.max(maxSourceBottom, srcY + NODE_HEIGHT);
+      }
+      blockY = Math.max(y, maxSourceBottom + VERT_GAP);
+      blockX = 0;
+    }
 
     const nodeData: BlockNodeData = {
       block,
@@ -67,49 +97,70 @@ export function buildGraphElements(
     nodes.push({
       id: block.id,
       type: "blockNode",
-      position: { x, y },
+      position: { x: blockX, y: blockY },
       data: { data: nodeData },
       style: { width: NODE_WIDTH },
     });
 
-    const nodeBottomY = y + NODE_HEIGHT;
+    const nodeBottomY = blockY + NODE_HEIGHT;
 
-    if (prevId && !parentId) {
-      edges.push({
-        id: `${prevId}->${block.id}`,
-        source: prevId,
-        target: block.id,
-        type: "smoothstep",
-        style: { stroke: "#475569", strokeWidth: 1.5 },
-      });
+    // ── Edges ───────────────────────────────────────────────────────────────
+    if (!parentId) {
+      if (block.merge_from != null) {
+        // Explicit multi-source edges
+        for (const srcId of block.merge_from) {
+          edges.push({
+            id: `${srcId}->${block.id}`,
+            source: srcId,
+            target: block.id,
+            type: "smoothstep",
+            style: { stroke: "#475569", strokeWidth: 1.5 },
+          });
+        }
+      } else if (!block.same_row_as && prevId) {
+        // Normal linear auto-connect (skip for parallel siblings)
+        edges.push({
+          id: `${prevId}->${block.id}`,
+          source: prevId,
+          target: block.id,
+          type: "smoothstep",
+          style: { stroke: "#475569", strokeWidth: 1.5 },
+        });
+      }
     }
 
-    prevId = block.id;
-    const entryY = y;
-    y += NODE_HEIGHT + VERT_GAP;
+    // ── Update tracking ─────────────────────────────────────────────────────
+    if (!parentId) {
+      yById.set(block.id, blockY);
+      xById.set(block.id, blockX);
 
+      if (block.same_row_as) {
+        // Parallel sibling: don't advance y or update prevId
+      } else {
+        // Main chain: advance y and update prevId
+        y = blockY + NODE_HEIGHT + VERT_GAP;
+        prevId = block.id;
+      }
+    } else {
+      // Child block inside expanded stack: y is managed by the parent loop
+      prevId = block.id;
+    }
+
+    const entryY = blockY;
+
+    // ── Expanded children ───────────────────────────────────────────────────
     if (isExpanded && block.children.length > 0) {
-      const childX = x + CHILD_X_OFFSET;
+      const childX = blockX + CHILD_X_OFFSET;
       let childPrevId: string | null = null;
       const childrenStartY = y;
 
-      // ── Residual skip-connection tracking ──────────────────────────────────
-      // residual_layout comes from the backend (arch_parser) so we never confuse
-      // BERT Post-LN with LLaMA/Mistral Pre-LN or T5's 3-add decoder.
-      //   post_ln:      sublayer → Add → LN  (BERT). Second skip taps LN output.
-      //   pre_ln:       LN → sublayer → Add  (GPT-2, LLaMA, Mistral). Second skip
-      //                 taps first Add output (not block trunk, not pre-FFN LN).
-      //   t5_decoder:   self → add → cross → add → LN → FFN → add. LNs do not
-      //                 advance the anchor; FFN skip taps cross-attn Add output.
       const rawLayout = block.params?.residual_layout as string | undefined;
       const residualLayout =
         rawLayout ||
         (block.children[0]?.type === "layer_norm" ? "pre_ln" : "post_ln");
       const anchorAfterLayerNorm = residualLayout === "post_ln";
-      // residualAnchor: tensor that the next residual addition branches from
       let residualAnchor: string = block.id;
       let pendingSkipSrc: string = block.id;
-      // ───────────────────────────────────────────────────────────────────────
 
       for (const child of block.children) {
         const childIsExpanded = expandedBlockIds.has(child.id);
@@ -147,29 +198,20 @@ export function buildGraphElements(
           });
         }
 
-        // ── Residual skip edges ──────────────────────────────────────────────
         const ct = child.type;
         if (
           ct === "multi_head_attention" ||
           ct === "feed_forward" ||
           ct === "moe_feed_forward"
         ) {
-          // Sublayer starting - snapshot the current residual anchor so the
-          // skip path originates from here (before this sublayer).
           pendingSkipSrc = residualAnchor;
         } else if (ct === "add") {
-          // Draw the dashed skip bypassing the preceding sublayer.
           const isParentSrc = pendingSkipSrc === block.id;
-          // Pre-LN / T5: second+ residual from a prior Add should leave the *bottom*
-          // of that Add (merged sublayer output), not the left edge (reads as trunk).
           const isFromPriorAdd =
             !isParentSrc && pendingSkipSrc.includes("__add_");
-          // Any stack where a residual merges from a *prior Add* (not Post-LN LN) should
-          // leave the bottom of that Add so it reads as the merged output, not the trunk.
           const useBottomSource =
             isFromPriorAdd &&
             (residualLayout === "pre_ln" || residualLayout === "t5_decoder");
-          // x = sub-stack input (parent trunk). y = hidden after prior Add / LN (layout-specific).
           const skipLabel = isParentSrc ? "x" : "y";
           edges.push({
             id: `skip::${pendingSkipSrc}::${childNodeId}`,
@@ -187,16 +229,12 @@ export function buildGraphElements(
           });
           residualAnchor = childNodeId;
         } else if (ct === "layer_norm" && anchorAfterLayerNorm) {
-          // Post-LN (BERT): LN output feeds the next sublayer; second residual taps here.
           residualAnchor = childNodeId;
         }
-        // pre_ln / t5_decoder: never move anchor on LayerNorm — residual stays on Add / trunk.
-        // ────────────────────────────────────────────────────────────────────
 
         childPrevId = childNodeId;
         y += NODE_HEIGHT + CHILD_VERT_GAP;
 
-        // ── Grandchild expansion (e.g. MoE FFN → Router / Expert FFNs / Combine) ──
         if (childIsExpanded && child.children.length > 0) {
           const gcX = childX + CHILD_X_OFFSET;
           let gcPrevId: string | null = null;
@@ -240,17 +278,12 @@ export function buildGraphElements(
             gcPrevId = gcId;
             y += NODE_HEIGHT + CHILD_VERT_GAP;
           }
-          y += CHILD_VERT_GAP; // extra breathing room after grandchildren
+          y += CHILD_VERT_GAP;
         }
       }
 
-      // Repeat label - only shown when the block repeats more than once.
-      // Height is derived from the actual y cursor so it matches the rendered
-      // positions exactly, regardless of NODE_HEIGHT accuracy.
       if (block.repeat > 1) {
-        const BRACKET_PAD = 8; // px above first child and below last child
-        // y is now at: childrenStartY + n*(NODE_HEIGHT+CHILD_VERT_GAP)
-        // last child bottom = y - CHILD_VERT_GAP
+        const BRACKET_PAD = 8;
         const childrenActualHeight = y - CHILD_VERT_GAP - childrenStartY;
         const labelData: RepeatLabelData = {
           repeat: block.repeat,

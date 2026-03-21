@@ -141,6 +141,15 @@ class ArchBlock(BaseModel):
     notes: str | None = None              # optional human note
     unknown_fields: list[str] = Field(default_factory=list)  # fields we couldn't determine
 
+    # ── Layout hints (optional, only used for non-linear graphs) ─────────────
+    # same_row_as: place this block at the same Y as the named block, offset to
+    #   the right.  Used for parallel branches (e.g. CLIP and SAM in VLMs).
+    # merge_from: explicit list of source block IDs for this block's incoming
+    #   edges.  Overrides the default "connect from previous block" behaviour.
+    #   An empty list [] means "no auto-connect; this block starts a branch".
+    same_row_as: str | None = None
+    merge_from: list[str] | None = None
+
 
 class ComputeStats(BaseModel):
     """Formula-based compute statistics for the full model."""

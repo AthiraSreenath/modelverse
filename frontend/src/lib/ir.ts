@@ -40,6 +40,11 @@ export interface ArchBlock {
   param_count: number | null;
   notes: string | null;
   unknown_fields: string[];
+  /** Place this block at the same Y as the named block, offset to the right (parallel branch). */
+  same_row_as?: string | null;
+  /** Explicit incoming edge sources. Overrides auto-connect from previous block.
+   *  Empty array = starts a new branch with no incoming edges. */
+  merge_from?: string[] | null;
 }
 
 export interface ComputeStats {

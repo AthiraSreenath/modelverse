@@ -802,6 +802,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
                     "patch_size": cp, "image_size": ci, "mlp_dim": clip_mlp,
                     "output_dim": cw},
             param_count=clip_p,
+            merge_from=[],   # starts the vision branch (no edge from Token Embeddings)
             notes=(
                 f"Vision encoder — runs in parallel with SAM ViT-B.\n"
                 f"Processes the full global-view image ({ci}×{ci}) through {cl} ViT-L transformer layers.\n"
@@ -838,6 +839,8 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
             params={"layers": sl, "width": sw, "heads": sam_cfg.get("heads", 12),
                     "downsample_channels": downsample, "output_dim": sam_out_dim},
             param_count=sam_p,
+            same_row_as="clip_l_vision",   # placed alongside CLIP (parallel branch)
+            merge_from=[],                 # no auto-connect; branch start
             notes=(
                 f"Vision encoder — runs in parallel with CLIP ViT-L/14.\n"
                 f"Processes tiled image regions at higher resolution through {sl} ViT-B layers.\n"
@@ -860,6 +863,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
                     "sam_branch_width": sam_out_dim,
                     "operation": "concat"},
             param_count=0,
+            merge_from=["clip_l_vision", "sam_vit_b"],  # converges both parallel branches
             notes=(
                 f"Concatenates the two parallel vision branch outputs along the channel dimension:\n"
                 f"  CLIP ViT-L/14 output: {clip_out_dim}-d\n"
@@ -899,7 +903,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         label=(
             f"LM Decoder — MoE ({n_routed} routed + {n_shared} shared, "
             f"top-{n_experts_per_tok} active/token · "
-            f"{total_layer/1e9:.2f}B stored · ~{active_lm/1e9:.2f}B active/tok)"
+            f"{total_layer/1e9:.2f}B stored · ~{active_lm/1e9:.2f}B active (per token))"
             if is_moe else "LM Decoder"
         ),
         type=BlockType.TRANSFORMER_STACK,
@@ -914,6 +918,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         },
         repeat=1, children=[],
         param_count=total_layer,   # final_norm is its own block below
+        merge_from=["embed_tokens", "projector"],  # text tokens + projected vision tokens
         notes=(
             f"Params shown = stored (all experts saved to disk, not active compute).\n"
             f"  • Stored: {total_layer/1e9:.2f}B — {n_routed} routed + {n_shared} shared experts all on disk\n"
