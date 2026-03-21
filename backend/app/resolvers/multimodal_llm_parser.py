@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Bump this string whenever the prompt or cache schema changes.
 # Old cached block lists (keyed on a different version) are silently superseded.
-_PROMPT_VERSION = "v4"
+_PROMPT_VERSION = "v5"
 
 # Canonical block IDs the LLM is required to use for known components.
 # _compute_stats_from_config matches on these exact IDs, bypassing fragile
@@ -328,7 +328,7 @@ async def _call_openai(system: str, user: str) -> str:
         raise RuntimeError("OPENAI_API_KEY not set")
     client = AsyncOpenAI(api_key=key)
     resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         max_tokens=2048,
         messages=[
             {"role": "system", "content": system},
@@ -339,10 +339,10 @@ async def _call_openai(system: str, user: str) -> str:
 
 
 async def _call_llm(system: str, user: str) -> str:
-    if os.getenv("ANTHROPIC_API_KEY"):
-        return await _call_anthropic(system, user)
     if os.getenv("OPENAI_API_KEY"):
         return await _call_openai(system, user)
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return await _call_anthropic(system, user)
     raise RuntimeError("No LLM API key set (ANTHROPIC_API_KEY or OPENAI_API_KEY)")
 
 
