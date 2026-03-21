@@ -96,7 +96,7 @@ function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-400 !border-slate-600" />
-      {/* Hidden handles used exclusively for residual skip edges */}
+      {/* Hidden handles used for residual skip edges and text-path routing */}
       <Handle type="source" position={Position.Right} id="source-right" style={{ opacity: 0, pointerEvents: "none" }} />
       <Handle type="source" position={Position.Left}  id="source-left"  style={{ opacity: 0, pointerEvents: "none" }} />
       <Handle type="source" position={Position.Bottom} id="source-bottom" style={{ opacity: 0, pointerEvents: "none" }} />

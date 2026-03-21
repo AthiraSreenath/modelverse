@@ -162,14 +162,30 @@ export function buildGraphElements(
     });
   }
 
+  // Build a lookup of which blocks have layout_align_y_with set (text-path nodes)
+  const alignedBlocks = new Set(ir.blocks.filter(b => b.layout_align_y_with).map(b => b.id));
+
   // ── 4. React Flow edges from the derived edge list ──────────────────────
   for (const { src, tgt } of edgeList) {
+    const isTextPathEdge = alignedBlocks.has(src);
+
     edges.push({
       id: `${src}->${tgt}`,
       source: src,
       target: tgt,
-      type: "smoothstep",
-      style: { stroke: "#475569", strokeWidth: 1.5 },
+      // bezier avoids the 90° rectangular routing of smoothstep
+      type: "bezier",
+      // Text-path edges exit the right side of Token Embeddings and enter
+      // the left side of the merge node, keeping them visually separate from
+      // the vertical vision path (Projector → Multimodal Merge)
+      ...(isTextPathEdge ? {
+        sourceHandle: "source-right",
+        targetHandle: "target-left",
+      } : {}),
+      style: {
+        stroke: isTextPathEdge ? "#60a5fa" : "#475569",  // blue = text path
+        strokeWidth: 1.5,
+      },
     });
   }
 
@@ -219,7 +235,7 @@ export function buildGraphElements(
           : `${block.id}->${childNodeId}`,
         source: childPrevId ?? block.id,
         target: childNodeId,
-        type: "smoothstep",
+        type: "bezier",
         style: {
           stroke: "#6366f1",
           strokeWidth: 1,
@@ -285,7 +301,7 @@ export function buildGraphElements(
             id: gcPrevId ? `${gcPrevId}->${gcId}` : `${gcParentId}->${gcId}`,
             source: gcPrevId ?? gcParentId,
             target: gcId,
-            type: "smoothstep",
+            type: "bezier",
             style: {
               stroke: "#a855f7",
               strokeWidth: 1,
