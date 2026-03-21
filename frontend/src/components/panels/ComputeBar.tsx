@@ -37,27 +37,30 @@ export default function ComputeBar() {
       icon: <Cpu className="w-3.5 h-3.5" />,
       label: "Parameters",
       value: formatParams(c.params_total),
+      estimated: false,
       sub: `${formatParams(c.params_embedding)} emb · ${formatParams(c.params_encoder)} enc`,
       tooltip:
-        "Exact - derived directly from model config. " +
+        "Exact — derived directly from model config. " +
         "MLM heads weight-tied to embeddings are excluded to avoid double-counting.",
     },
     {
       icon: <MemoryStick className="w-3.5 h-3.5" />,
       label: "Memory (fp16)",
       value: c.memory_fp16_gb != null ? formatBytes(c.memory_fp16_gb) : "-",
+      estimated: true,
       sub: c.memory_int4_gb != null ? `${formatBytes(c.memory_int4_gb)} @ int4` : "",
       tooltip:
-        "Estimated - model weight memory only (params × 2 bytes for fp16). " +
+        "Estimate — weight memory only (params × 2 bytes for fp16). " +
         "Excludes KV cache, activations, and optimizer state.",
     },
     {
       icon: <Zap className="w-3.5 h-3.5" />,
-      label: "FLOPs",
+      label: "FLOPs / token",
       value: c.flops_per_token != null ? formatFlops(c.flops_per_token) : "-",
+      estimated: true,
       sub: "",
       tooltip:
-        "Estimated - forward-pass FLOPs per token. " +
+        "Estimate — forward-pass FLOPs per token. " +
         "Counts attention QKV/O projections + FFN matrix multiplications. " +
         "LayerNorm, activations, and embeddings excluded (<1% of total).",
     },
@@ -77,8 +80,12 @@ export default function ComputeBar() {
           <div>
             <div className="flex items-baseline gap-1.5">
               <span className="text-xs text-slate-400">{s.label}</span>
-              <span className="text-sm font-mono font-semibold text-white">
-                {s.value}
+              <span
+                className={`text-sm font-mono font-semibold ${
+                  s.estimated ? "text-slate-300" : "text-white"
+                }`}
+              >
+                {s.estimated ? `~${s.value}` : s.value}
               </span>
               {s.tooltip && (
                 <span
@@ -107,12 +114,12 @@ export default function ComputeBar() {
           <div>
             <div className="flex items-baseline gap-1.5">
               <span className="text-xs text-slate-400">KV Cache</span>
-              <span className="text-sm font-mono font-semibold text-white">
-                {formatBytes(c.kv_cache_fp16_gb)}
+              <span className="text-sm font-mono font-semibold text-slate-300">
+                ~{formatBytes(c.kv_cache_fp16_gb)}
               </span>
               <span
                 title={
-                  "Estimated - key/value cache memory at fp16. " +
+                  "Estimate — key/value cache memory at fp16. " +
                   "Formula: 2 (K+V) × layers × kv_heads × head_dim × seq_len × 2 bytes. " +
                   "For GQA models (LLaMA, Mistral) uses the reduced num_kv_heads. " +
                   "For T5 includes both decoder self-attention and cross-attention KV."
@@ -137,7 +144,7 @@ export default function ComputeBar() {
         <div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-xs text-slate-400">Latency</span>
-            <span className="text-sm font-mono font-semibold text-white">
+            <span className="text-sm font-mono font-semibold text-slate-300">
               ~{formatLatency(latencyMs)}
             </span>
             <span className="text-[10px] text-slate-500">
@@ -145,10 +152,10 @@ export default function ComputeBar() {
             </span>
             <span
               title={
-                "Estimated lower bound - memory-bandwidth-bound roofline model (batch=1, fp16). " +
+                "Estimate (lower bound) — memory-bandwidth-bound roofline model (batch=1, fp16). " +
                 "Formula: model_bytes / memory_bandwidth. " +
                 "Assumes 100% VRAM bandwidth utilization. " +
-                "Real latency is typically 1.5-3× higher due to software overhead and compute constraints. " +
+                "Real latency is typically 1.5–3× higher due to software overhead and compute constraints. " +
                 (isEncoder ? "For encoder models: time per full-sequence forward pass." : "For decoder models: time per output token.")
               }
               className="text-[10px] text-slate-600 hover:text-slate-400 cursor-help select-none leading-none"
