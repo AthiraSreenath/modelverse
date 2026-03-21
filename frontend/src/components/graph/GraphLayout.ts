@@ -121,10 +121,30 @@ export function buildGraphElements(
   for (const block of ir.blocks) {
     const pos = g.node(block.id);
     if (!pos) continue;
-    const x = pos.x - NODE_W / 2;
-    const y = pos.y - NODE_H / 2;
-    dagrePositions.set(block.id, { x, y });
+    dagrePositions.set(block.id, {
+      x: pos.x - NODE_W / 2,
+      y: pos.y - NODE_H / 2,
+    });
+  }
 
+  // ── 2b. Post-Dagre position overrides (layout_align_y_with) ─────────────
+  // Find the leftmost X so aligned blocks can be placed clearly to the left.
+  let minX = Infinity;
+  for (const [, pos] of dagrePositions) minX = Math.min(minX, pos.x);
+  const alignedLeftX = minX - NODE_W - 60;
+
+  for (const block of ir.blocks) {
+    if (!block.layout_align_y_with) continue;
+    const refPos = dagrePositions.get(block.layout_align_y_with);
+    if (!refPos) continue;
+    dagrePositions.set(block.id, { x: alignedLeftX, y: refPos.y });
+  }
+
+  // ── 3. Build React Flow nodes from (possibly overridden) positions ───────
+  for (const block of ir.blocks) {
+    const pos = dagrePositions.get(block.id);
+    if (!pos) continue;
+    const { x, y } = pos;
     const isExpanded = expandedBlockIds.has(block.id);
     const isDiffed   = diffedIds.has(block.id);
     const nodeData: BlockNodeData = {
@@ -142,7 +162,7 @@ export function buildGraphElements(
     });
   }
 
-  // ── 3. React Flow edges from the derived edge list ──────────────────────
+  // ── 4. React Flow edges from the derived edge list ──────────────────────
   for (const { src, tgt } of edgeList) {
     edges.push({
       id: `${src}->${tgt}`,
@@ -153,7 +173,7 @@ export function buildGraphElements(
     });
   }
 
-  // ── 4. Expanded children (placed manually, right of parent) ────────────
+  // ── 5. Expanded children (placed manually, right of parent) ────────────
   for (const block of ir.blocks) {
     const isExpanded = expandedBlockIds.has(block.id);
     if (!isExpanded || block.children.length === 0) continue;

@@ -151,6 +151,10 @@ class ArchBlock(BaseModel):
     layout_column: int = 0
     same_row_as: str | None = None
     merge_from: list[str] | None = None
+    # layout_align_y_with: after Dagre runs, override this block's Y to match
+    # the referenced block's Y, and shift X to the left of the full layout.
+    # Used to place Token Embeddings at the same level as Vision Projector in VLMs.
+    layout_align_y_with: str | None = None
 
 
 class ComputeStats(BaseModel):

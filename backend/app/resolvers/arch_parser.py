@@ -775,7 +775,13 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         params={"vocab_size": vocab_size, "hidden_size": h,
                 "max_position_embeddings": max_pos, "position_embedding_type": "rope"},
         param_count=emb_p,
-        notes="Text token embeddings. Projected vision tokens are injected into this same sequence before the LM decoder.",
+        merge_from=[],               # independent root — not connected to vision path
+        layout_align_y_with="projector",  # snapped to Vision Projector's Y level after layout
+        notes=(
+            "Text token embeddings (independent of vision path).\n"
+            "Projected visual tokens from the Vision Projector are interleaved into this "
+            "same sequence inside the Multimodal Token Sequence merge step, before the LM decoder."
+        ),
     ))
 
     # ── Vision encoders (PARALLEL paths — both process the image independently) ──
@@ -902,6 +908,23 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
     active_lm = _moe_active_params(lm_cfg) if is_moe else (total_layer + final_norm_p + emb_p + lm_head_p)
     total_stored_lm = total_layer + final_norm_p + emb_p + lm_head_p
 
+    # ── Explicit multimodal merge — makes the text+vision join unambiguous ──
+    blocks.append(ArchBlock(
+        id="multimodal_merge",
+        label="Multimodal Token Sequence",
+        type=BlockType.ADD,
+        params={"operation": "interleave", "text_dim": h, "visual_dim": proj_out},
+        param_count=0,
+        merge_from=["embed_tokens", "projector"],
+        notes=(
+            "Text token embeddings and projected visual tokens are interleaved into a "
+            "single input sequence for the LM decoder.\n\n"
+            f"Text tokens: {vocab_size:,}-vocab embeddings ({h}-d)\n"
+            f"Visual tokens: Vision Projector output ({proj_out}-d)\n"
+            "No learned parameters — this is a sequence concatenation / interleave step."
+        ),
+    ))
+
     blocks.append(ArchBlock(
         id="layers",
         label=(
@@ -920,7 +943,7 @@ def _parse_deepseek_vl_v2(config: dict, model_id: str) -> ArchitectureIR:
         },
         repeat=1, children=[],
         param_count=total_layer,   # final_norm is its own block below
-        merge_from=["embed_tokens", "projector"],  # text tokens + projected vision tokens
+        # auto-connects from multimodal_merge (no merge_from needed)
         notes=(
             f"Params shown = stored (all experts saved to disk, not active compute).\n"
             f"  • Stored: {total_layer/1e9:.2f}B — {n_routed} routed + {n_shared} shared experts all on disk\n"

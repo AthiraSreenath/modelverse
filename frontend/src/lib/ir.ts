@@ -47,6 +47,10 @@ export interface ArchBlock {
   /** Explicit incoming edge sources. Overrides auto-connect from previous block.
    *  Empty array = starts a new branch with no incoming edges. */
   merge_from?: string[] | null;
+  /** After Dagre layout: snap this block's Y to the referenced block's Y,
+   *  and shift its X to the left of the whole layout. Used to align
+   *  Token Embeddings alongside Vision Projector in multimodal models. */
+  layout_align_y_with?: string | null;
 }
 
 export interface ComputeStats {
